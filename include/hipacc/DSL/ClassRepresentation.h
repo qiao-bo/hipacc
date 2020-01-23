@@ -574,7 +574,7 @@ class HipaccKernel : public HipaccKernelFeatures {
     std::string name;
     std::string kernelName, reduceName, binningName;
     std::string fileName;
-    std::string reduceStr, binningStr, infoStr, numBinsStr;
+    std::string reduceStr, binningStr, infoStr, numBinsStr, streamStr;
     unsigned infoStrCnt, binningStrCnt;
     HipaccIterationSpace *iterationSpace;
     std::map<FieldDecl *, HipaccAccessor *> imgMap;
@@ -614,7 +614,7 @@ class HipaccKernel : public HipaccKernelFeatures {
       reduceName(options.getTargetPrefix() + KC->getName() + name + "Reduce"),
       binningName(options.getTargetPrefix() + KC->getName() + name + "Binning"),
       fileName(options.getTargetPrefix() + KC->getName() + VD->getNameAsString()),
-      reduceStr(), binningStr(), infoStr(), numBinsStr(),
+      reduceStr(), binningStr(), infoStr(), numBinsStr(), streamStr("stream"),
       infoStrCnt(0), binningStrCnt(0),
       iterationSpace(nullptr),
       imgMap(),
@@ -803,6 +803,10 @@ class HipaccKernel : public HipaccKernelFeatures {
     unsigned getPixelsPerThreadReduce() {
       return pixels_per_thread[GlobalOperator];
     }
+    void setStream(std::string s) {
+      streamStr = s;
+    }
+    std::string getStream() { return streamStr; }
 };
 } // namespace hipacc
 } // namespace clang

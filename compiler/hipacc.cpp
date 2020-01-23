@@ -101,7 +101,8 @@ void printUsage() {
     << "  -rs-package <string>    Specify Renderscript package name. (default: \"org.hipacc.rs\")\n"
     << "  -o <file>               Write output to <file>\n"
     << "  --help                  Display available options\n"
-    << "  --version               Display version information\n";
+    << "  --version               Display version information\n"
+    << "  -use-cuda-stream        Async kernel launch with CUDA streams\n";
 }
 
 
@@ -245,6 +246,10 @@ int main(int argc, char *argv[]) {
     }
     if (StringRef(argv[i]) == "-time-kernels") {
       compilerOptions.setTimeKernels(USER_ON);
+      continue;
+    }
+    if (StringRef(argv[i]) == "-use-cuda-stream") {
+      compilerOptions.setAsyncKernelLaunch(USER_ON);
       continue;
     }
     if (StringRef(argv[i]) == "-use-textures") {
@@ -421,6 +426,13 @@ int main(int argc, char *argv[]) {
     // kernels are timed internally by the runtime in case of exploration
     compilerOptions.setTimeKernels(OFF);
   }
+  // Enable CUDA streams
+  if (!compilerOptions.emitCUDA() && compilerOptions.asyncKernelLaunch()) {
+      llvm::errs() << "ERROR: async (stream) support is only available for CUDA!\n\n";
+      printUsage();
+      return EXIT_FAILURE;
+  }
+
 
   // print summary of compiler options
   compilerOptions.printSummary(targetDevice.getTargetDeviceName());

@@ -805,6 +805,9 @@ void CreateHostStrings::writeKernelCall(HipaccKernel *K, std::string &resultStr)
         resultStr += ", " + gridStr;
         resultStr += ", " + blockStr;
         resultStr += ", _args" + kernel_name + ".data()";
+        if (options.asyncKernelLaunch()) {
+          resultStr += ", " + K->getStream();
+        }
         resultStr += ");";
         break;
       case Language::Renderscript:
