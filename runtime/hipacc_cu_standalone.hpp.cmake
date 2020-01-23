@@ -234,6 +234,13 @@ void hipaccLaunchKernel(const void *kernel, std::string kernel_name, dim3 grid, 
 }
 
 
+// Launch kernel async
+void hipaccLaunchKernel(const void *kernel, std::string kernel_name, dim3 grid, dim3 block, void **args, cudaStream_t stream) {
+    cudaError_t err = cudaLaunchKernel(kernel, grid, block, args, 0, stream);
+    checkErr(err, "cudaLaunchKernel(" + kernel_name + ")");
+}
+
+
 // Benchmark timing for a kernel call
 void hipaccLaunchKernelBenchmark(const void *kernel, std::string kernel_name, dim3 grid, dim3 block, std::vector<void *> args, bool print_timing) {
     std::vector<float> times;
