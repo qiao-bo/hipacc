@@ -122,6 +122,33 @@ void hipaccWriteMemory(HipaccImage &img, T *host_mem) {
 }
 
 
+// Write to memory async
+template<typename T>
+void hipaccWriteMemory(HipaccImage &img, T *host_mem, cudaStream_t stream) {
+    if (host_mem == NULL) return;
+
+    size_t width  = img->width;
+    size_t height = img->height;
+    size_t stride = img->stride;
+
+    if ((char *)host_mem != img->host)
+        std::copy(host_mem, host_mem + width*height, (T*)img->host);
+
+    if (img->mem_type >= Array2D) {
+        cudaError_t err = cudaMemcpy2DToArrayAsync((cudaArray *)img->mem, 0, 0, host_mem, stride*sizeof(T), width*sizeof(T), height, cudaMemcpyHostToDevice, stream);
+        checkErr(err, "cudaMemcpy2DToArray()");
+    } else {
+        if (stride > width) {
+            cudaError_t err = cudaMemcpy2DAsync(img->mem, stride*sizeof(T), host_mem, width*sizeof(T), width*sizeof(T), height, cudaMemcpyHostToDevice, stream);
+            checkErr(err, "cudaMemcpy2D()");
+        } else {
+            cudaError_t err = cudaMemcpyAsync(img->mem, host_mem, sizeof(T)*width*height, cudaMemcpyHostToDevice, stream);
+            checkErr(err, "cudaMemcpy()");
+        }
+    }
+}
+
+
 // Read from memory
 template<typename T>
 T *hipaccReadMemory(const HipaccImage &img) {
@@ -138,6 +165,30 @@ T *hipaccReadMemory(const HipaccImage &img) {
             checkErr(err, "cudaMemcpy2D()");
         } else {
             cudaError_t err = cudaMemcpy((T*)img->host, img->mem, sizeof(T)*width*height, cudaMemcpyDeviceToHost);
+            checkErr(err, "cudaMemcpy()");
+        }
+    }
+
+    return (T*)img->host;
+}
+
+
+// Read from memory async
+template<typename T>
+T *hipaccReadMemory(const HipaccImage &img, cudaStream_t stream) {
+    size_t width  = img->width;
+    size_t height = img->height;
+    size_t stride = img->stride;
+
+    if (img->mem_type >= Array2D) {
+        cudaError_t err = cudaMemcpy2DFromArrayAsync((T*)img->host, stride*sizeof(T), (cudaArray *)img->mem, 0, 0, width*sizeof(T), height, cudaMemcpyDeviceToHost, stream);
+        checkErr(err, "cudaMemcpy2DFromArray()");
+    } else {
+        if (stride > width) {
+            cudaError_t err = cudaMemcpy2DAsync((T*)img->host, width*sizeof(T), img->mem, stride*sizeof(T), width*sizeof(T), height, cudaMemcpyDeviceToHost, stream);
+            checkErr(err, "cudaMemcpy2D()");
+        } else {
+            cudaError_t err = cudaMemcpyAsync((T*)img->host, img->mem, sizeof(T)*width*height, cudaMemcpyDeviceToHost, stream);
             checkErr(err, "cudaMemcpy()");
         }
     }

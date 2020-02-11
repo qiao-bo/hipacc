@@ -208,7 +208,11 @@ HipaccImage hipaccCreatePyramidImage(const HipaccImage &base, size_t width, size
 template<typename T>
 void hipaccWriteMemory(HipaccImage &img, T *host_mem);
 template<typename T>
+void hipaccWriteMemory(HipaccImage &img, T *host_mem, cudaStream_t stream);
+template<typename T>
 T *hipaccReadMemory(const HipaccImage &img);
+template<typename T>
+T *hipaccReadMemory(const HipaccImage &img, cudaStream_t stream);
 template<typename T>
 void hipaccBindTexture(hipaccMemoryType mem_type, const textureReference *tex, const HipaccImage &img);
 template<typename T>
