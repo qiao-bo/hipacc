@@ -376,10 +376,18 @@ void Rewrite::HandleTranslationUnit(ASTContext &) {
   CompoundStmt *CS = dyn_cast<CompoundStmt>(mainFD->getBody());
   assert(CS->size() && "CompoundStmt has no statements.");
 
-  std::string initStr;
+  std::string initStr, cleanupStr;
 
   // get initialization string for run-time
   stringCreator.writeInitialization(initStr);
+
+  // write CUDA streams
+  if (compilerOptions.asyncKernelLaunch()) {
+    initStr += "cudaStream_t stream;";
+    initStr += "\n" + stringCreator.getIndent();
+    initStr += "cudaStreamCreate(&stream);";
+    initStr += "\n" + stringCreator.getIndent();
+  }
 
   // load OpenCL kernel files and compile the OpenCL kernels
   if (!compilerOptions.exploreConfig()) {
@@ -410,6 +418,13 @@ void Rewrite::HandleTranslationUnit(ASTContext &) {
 
   // insert initialization before first statement
   TextRewriter.InsertTextBefore(CS->body_front()->getBeginLoc(), initStr);
+
+  // insert cleanup before last statement
+  if (compilerOptions.asyncKernelLaunch()) {
+    cleanupStr = "cudaStreamDestroy(stream);";
+    cleanupStr += "\n" + stringCreator.getIndent();
+    TextRewriter.InsertTextBefore(CS->body_back()->getBeginLoc(), cleanupStr);
+  }
 
   // get buffer of main file id. If we haven't changed it, then we are done.
   if (auto RewriteBuf = TextRewriter.getRewriteBufferFor(mainFileID)) {
