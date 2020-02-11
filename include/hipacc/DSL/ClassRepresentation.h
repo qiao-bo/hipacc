@@ -143,16 +143,21 @@ class HipaccMemory : public HipaccSize {
 class HipaccImage : public HipaccMemory {
   private:
     ASTContext &Ctx;
+    std::string streamStr;
 
   public:
     HipaccImage(ASTContext &Ctx, VarDecl *VD, QualType QT) :
       HipaccMemory(VD, VD->getNameAsString(), QT),
-      Ctx(Ctx)
+      Ctx(Ctx), streamStr("stream")
     {}
 
     unsigned getPixelSize() { return Ctx.getTypeSize(type)/8; }
     std::string getTextureType();
     std::string getImageReadFunction();
+    void setStream(std::string s) {
+      streamStr = s;
+    }
+    std::string getStream() { return streamStr; }
 };
 
 

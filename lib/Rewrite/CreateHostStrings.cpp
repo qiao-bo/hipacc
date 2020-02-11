@@ -260,11 +260,19 @@ void CreateHostStrings::writeMemoryTransfer(HipaccImage *Img, std::string mem,
     case HOST_TO_DEVICE:
       resultStr += "hipaccWriteMemory(";
       resultStr += Img->getName();
-      resultStr += ", " + mem + ");";
+      resultStr += ", " + mem;
+      if (options.asyncKernelLaunch()) {
+        resultStr += ", " + Img->getStream();
+      }
+      resultStr += ");";
       break;
     case DEVICE_TO_HOST:
       resultStr += "hipaccReadMemory<" + Img->getTypeStr() + ">(";
-      resultStr += Img->getName() + ");";
+      resultStr += Img->getName();
+      if (options.asyncKernelLaunch()) {
+        resultStr += ", " + Img->getStream();
+      }
+      resultStr += ");";
       break;
     case DEVICE_TO_DEVICE:
       resultStr += "hipaccCopyMemory(";
@@ -284,11 +292,19 @@ void CreateHostStrings::writeMemoryTransfer(HipaccPyramid *Pyr, std::string idx,
     case HOST_TO_DEVICE:
       resultStr += "hipaccWriteMemory(";
       resultStr += Pyr->getName() + "(" + idx + ")";
-      resultStr += ", " + mem + ");";
+      resultStr += ", " + mem;
+      if (options.asyncKernelLaunch()) {
+        resultStr += ", " + Pyr->getStream();
+      }
+      resultStr += ");";
       break;
     case DEVICE_TO_HOST:
       resultStr += "hipaccReadMemory<" + Pyr->getTypeStr() + ">(";
-      resultStr += Pyr->getName() + "(" + idx + "));";
+      resultStr += Pyr->getName() + "(" + idx + ")";
+      if (options.asyncKernelLaunch()) {
+        resultStr += ", " + Pyr->getStream();
+      }
+      resultStr += ");";
       break;
     case DEVICE_TO_DEVICE:
       resultStr += "hipaccCopyMemory(";
