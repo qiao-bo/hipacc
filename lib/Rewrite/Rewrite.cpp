@@ -761,6 +761,15 @@ bool Rewrite::VisitDeclStmt(DeclStmt *D) {
         std::string image_str = convertToString(CCE->getArg(0));
         std::string depth_str = convertToString(CCE->getArg(1));
 
+        // extract depth level from pyramid
+        unsigned IDConstant = Diags.getCustomDiagID(DiagnosticsEngine::Error,
+                "Constant expression for %0 argument of Pyramid %1 required (CUDA only).");
+        if (!CCE->getArg(1)->isEvaluatable(Context)) {
+          Diags.Report(CCE->getArg(1)->getExprLoc(), IDConstant) << "depth"
+            << Pyr->getName();
+        }
+        int64_t pyr_depth = CCE->getArg(1)->EvaluateKnownConstInt(Context).getSExtValue();
+
         // create memory allocation string
         std::string newStr;
         stringCreator.writePyramidAllocation(VD->getName(),
