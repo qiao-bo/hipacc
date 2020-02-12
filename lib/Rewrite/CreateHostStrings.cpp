@@ -744,6 +744,13 @@ void CreateHostStrings::writeKernelCall(HipaccKernel *K, std::string &resultStr)
   }
   resultStr += "\n" + indent;
 
+  // insert cuda stream and wait event
+  if (options.emitCUDA() && options.asyncKernelLaunch() && K->hasWaitEvent()) {
+    resultStr += "cudaStreamWaitEvent(" + K->getStream() + ", ";
+    resultStr += K->getWaitEventStr() + ", 0);";
+    resultStr += "\n" + indent;
+  }
+
   // launch kernel
   if (options.exploreConfig() || options.timeKernels()) {
     switch (options.getTargetLang()) {
@@ -843,6 +850,13 @@ void CreateHostStrings::writeKernelCall(HipaccKernel *K, std::string &resultStr)
         resultStr += ");";
         break;
     }
+  }
+
+  // insert cuda stream and record event
+  if (options.emitCUDA() && options.asyncKernelLaunch() && K->hasRecordEvent()) {
+    resultStr += "cudaEventRecord(" + K->getRecordEventStr() + ", ";
+    resultStr += K->getStream() + ");";
+    resultStr += "\n" + indent;
   }
 }
 

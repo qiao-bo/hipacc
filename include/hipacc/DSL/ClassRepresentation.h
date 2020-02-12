@@ -580,6 +580,8 @@ class HipaccKernel : public HipaccKernelFeatures {
     std::string kernelName, reduceName, binningName;
     std::string fileName;
     std::string reduceStr, binningStr, infoStr, numBinsStr, streamStr;
+    bool waitEvent, recordEvent;
+    std::string waitEventStr, recordEventStr;
     unsigned infoStrCnt, binningStrCnt;
     HipaccIterationSpace *iterationSpace;
     std::map<FieldDecl *, HipaccAccessor *> imgMap;
@@ -620,6 +622,7 @@ class HipaccKernel : public HipaccKernelFeatures {
       binningName(options.getTargetPrefix() + KC->getName() + name + "Binning"),
       fileName(options.getTargetPrefix() + KC->getName() + VD->getNameAsString()),
       reduceStr(), binningStr(), infoStr(), numBinsStr(), streamStr("stream"),
+      waitEvent(false), recordEvent(false), waitEventStr("event"), recordEventStr("event"),
       infoStrCnt(0), binningStrCnt(0),
       iterationSpace(nullptr),
       imgMap(),
@@ -808,10 +811,16 @@ class HipaccKernel : public HipaccKernelFeatures {
     unsigned getPixelsPerThreadReduce() {
       return pixels_per_thread[GlobalOperator];
     }
-    void setStream(std::string s) {
-      streamStr = s;
-    }
+    void setStream(std::string s) { streamStr = s; }
     std::string getStream() { return streamStr; }
+    void setWaitEvent(bool e) { waitEvent = e; }
+    bool hasWaitEvent() { return waitEvent; }
+    void setRecordEvent(bool e) { recordEvent = e; }
+    bool hasRecordEvent() { return recordEvent; }
+    void setWaitEventStr(std::string s) { waitEventStr = s; }
+    std::string getWaitEventStr() { return waitEventStr; }
+    void setRecordEventStr(std::string s) { recordEventStr = s; }
+    std::string getRecordEventStr() { return recordEventStr; }
 };
 } // namespace hipacc
 } // namespace clang
