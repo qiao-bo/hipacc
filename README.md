@@ -1,3 +1,5 @@
+This is a folk (with primarily experiential features) of the [Hipacc](http://hipacc-lang.org) project.
+
 # Hipacc
 A domain-specific language and compiler for image processing
 
