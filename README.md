@@ -1,8 +1,6 @@
-This is a fork of the [Hipacc](http://hipacc-lang.org) project.
-
-Primarily experiential features:
+This is a fork of the [Hipacc](http://hipacc-lang.org) project, with primarily experiential features:
 * Asynchronous runtime APIs
-* Multi-stream implementation in CUDA
+* Multi-stream implementation for multiresolution filters in CUDA
 
 
 # Hipacc
