@@ -381,8 +381,11 @@ void Rewrite::HandleTranslationUnit(ASTContext &) {
   // get initialization string for run-time
   stringCreator.writeInitialization(initStr);
 
+  // TODO, iterate over all kernels to collect events and streams to be
+  // initialized
   // write CUDA streams
   if (compilerOptions.asyncKernelLaunch()) {
+
     initStr += "cudaStream_t stream;";
     initStr += "\n" + stringCreator.getIndent();
     initStr += "cudaStreamCreate(&stream);";
@@ -769,7 +772,7 @@ bool Rewrite::VisitDeclStmt(DeclStmt *D) {
             << Pyr->getName();
         }
         int64_t pyr_depth = CCE->getArg(1)->EvaluateKnownConstInt(Context).getSExtValue();
-
+        Pyr->setDepth(pyr_depth);
         // create memory allocation string
         std::string newStr;
         stringCreator.writePyramidAllocation(VD->getName(),

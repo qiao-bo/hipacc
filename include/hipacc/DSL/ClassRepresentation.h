@@ -154,18 +154,20 @@ class HipaccImage : public HipaccMemory {
     unsigned getPixelSize() { return Ctx.getTypeSize(type)/8; }
     std::string getTextureType();
     std::string getImageReadFunction();
-    void setStream(std::string s) {
-      streamStr = s;
-    }
+    void setStream(std::string s) { streamStr = s; }
     std::string getStream() { return streamStr; }
 };
 
 
 class HipaccPyramid : public HipaccImage {
+  private:
+    unsigned depth;
   public:
     HipaccPyramid(ASTContext &Ctx, VarDecl *VD, QualType QT) :
-      HipaccImage(Ctx, VD, QT)
+      HipaccImage(Ctx, VD, QT), depth(0)
     {}
+    void setDepth(unsigned d) { depth = d; }
+    unsigned getDepth() { return depth; }
 };
 
 
