@@ -235,13 +235,6 @@ void hipaccLaunchKernel(const void *kernel, std::string kernel_name, dim3 grid, 
 
 
 // Launch kernel async
-void hipaccLaunchKernel(const void *kernel, std::string kernel_name, dim3 grid, dim3 block, void **args, cudaStream_t stream) {
-    cudaError_t err = cudaLaunchKernel(kernel, grid, block, args, 0, stream);
-    checkErr(err, "cudaLaunchKernel(" + kernel_name + ")");
-}
-
-
-// Launch kernel async with wait and record events
 void hipaccLaunchKernel(const void *kernel, std::string kernel_name, dim3 grid, dim3 block, void **args, cudaStream_t stream, cudaEvent_t waitEvent, cudaEvent_t recordEvent) {
     if (waitEvent) {
       cudaStreamWaitEvent(stream, waitEvent, 0);

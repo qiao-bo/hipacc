@@ -181,7 +181,6 @@ void hipaccInitCUDA();
 void hipaccCopyMemory(const HipaccImage &src, HipaccImage &dst);
 void hipaccCopyMemoryRegion(const HipaccAccessor &src, const HipaccAccessor &dst);
 void hipaccLaunchKernel(const void *kernel, std::string kernel_name, dim3 grid, dim3 block, void **args, bool print_timing=true);
-void hipaccLaunchKernel(const void *kernel, std::string kernel_name, dim3 grid, dim3 block, void **args, cudaStream_t stream);
 void hipaccLaunchKernel(const void *kernel, std::string kernel_name, dim3 grid, dim3 block, void **args, cudaStream_t stream, cudaEvent_t waitEvent=nullptr, cudaEvent_t recordEvent=nullptr);
 void hipaccLaunchKernelBenchmark(const void *kernel, std::string kernel_name, dim3 grid, dim3 block, std::vector<void *> args, bool print_timing=true);
 void hipaccLaunchKernelExploration(std::string filename, std::string kernel, std::vector<void *> args,
