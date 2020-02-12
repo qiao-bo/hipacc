@@ -1,4 +1,9 @@
-This is a folk (with primarily experiential features) of the [Hipacc](http://hipacc-lang.org) project.
+This is a fork of the [Hipacc](http://hipacc-lang.org) project.
+
+Primarily experiential features:
+* Asynchronous runtime APIs
+* Multi-stream implementation in CUDA
+
 
 # Hipacc
 A domain-specific language and compiler for image processing
