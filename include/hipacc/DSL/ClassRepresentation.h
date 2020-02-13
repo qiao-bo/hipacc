@@ -85,6 +85,12 @@ enum class Interpolate : uint8_t {
   L3
 };
 
+// basic pyramid operations
+enum class PyramidOperation : uint8_t {
+  REDUCE = 0,
+  FILTER,
+  EXPAND
+};
 
 // common base class for images, masks and pyramids
 class HipaccSize {
@@ -168,6 +174,55 @@ class HipaccPyramid : public HipaccImage {
     {}
     void setDepth(unsigned d) { depth = d; }
     unsigned getDepth() { return depth; }
+};
+
+
+// TODO, generalize this to an abstract class interface
+class HipaccPyramidPipeline {
+  private:
+    bool singleStream;
+    bool multiStream;
+    bool pipelineKernelLaunch;
+    unsigned depth;
+    std::string global_level_str;
+    llvm::DenseMap<ValueDecl *, PyramidOperation> KernelDeclMap;
+  public:
+    HipaccPyramidPipeline() :
+      singleStream(false),
+      multiStream(true),
+      pipelineKernelLaunch(false),
+      depth(0){}
+
+    void updateDepth(unsigned d) {
+      depth = (d > depth) ? d : depth;
+    }
+    unsigned getDepth() { return depth; }
+    void setGlobalLevelStr(std::string level) {
+      if (global_level_str.empty()) {
+        global_level_str = level;
+      }
+    }
+    std::string getGlobalLevelStr() {
+      return global_level_str;
+    }
+    bool isSingleStream() { return singleStream; }
+    bool isMultiStream() { return multiStream; }
+    void setSingleStream(bool s) { singleStream = s; }
+    void setMultiStream(bool s) { multiStream = s; }
+    void recordKernel(ValueDecl *VD, PyramidOperation pyrOp) {
+      KernelDeclMap[VD] = pyrOp;
+    }
+    bool isRecordedKernel(ValueDecl *VD) { return KernelDeclMap.count(VD); }
+    PyramidOperation getPyramidOperation(ValueDecl *VD) {
+      assert(isRecordedKernel(VD) && "Kernel is not recorded in the pyramid pipeline.");
+      return KernelDeclMap[VD];
+    }
+    void enablePipelineKernelLaunch() {
+      pipelineKernelLaunch = true;
+    }
+    bool isPipelineKernelLaunch() {
+      return pipelineKernelLaunch;
+    }
 };
 
 
@@ -392,6 +447,7 @@ class HipaccKernelClass {
     std::string name;
     CXXMethodDecl *kernelFunction, *reduceFunction, *binningFunction;
     QualType pixelType, binType;
+    PyramidOperation pyrOp;
     KernelStatistics *kernelStatistics;
     // kernel member information
     SmallVector<KernelMemberInfo, 16> members;
@@ -432,6 +488,9 @@ class HipaccKernelClass {
     void setBinType(QualType type) { binType = type; }
     QualType getPixelType() { return pixelType; }
     QualType getBinType() { return binType; }
+
+    void setPyramidOperation(PyramidOperation op) { pyrOp = op; }
+    PyramidOperation  getPyramidOperation() { return pyrOp; }
 
     KernelStatistics &getKernelStatistics(void) {
       return *kernelStatistics;

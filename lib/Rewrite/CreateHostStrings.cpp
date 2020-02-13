@@ -403,7 +403,7 @@ void CreateHostStrings::writeMemoryTransferDomainFromMask(
 }
 
 
-void CreateHostStrings::writeKernelCall(HipaccKernel *K, std::string &resultStr) {
+void CreateHostStrings::writeKernelCall(HipaccKernel *K, std::string &resultStr, HipaccPyramidPipeline *pyrPipe) {
   auto argTypeNames = K->getArgTypeNames();
   auto deviceArgNames = K->getDeviceArgNames();
   auto hostArgNames = K->getHostArgNames();
@@ -828,8 +828,33 @@ void CreateHostStrings::writeKernelCall(HipaccKernel *K, std::string &resultStr)
         resultStr += ", " + gridStr;
         resultStr += ", " + blockStr;
         resultStr += ", _args" + kernel_name + ".data()";
+
         if (options.asyncKernelLaunch()) {
-          resultStr += ", " + K->getStream();
+          if (pyrPipe) { // pyramid app
+            if (pyrPipe->isSingleStream()) {
+              resultStr += ", " + K->getStream();
+            } else if (pyrPipe->isMultiStream()) {
+              switch (pyrPipe->getPyramidOperation(K->getDecl())) {
+                case PyramidOperation::REDUCE:
+                  resultStr += ", stream[" + pyrPipe->getGlobalLevelStr() + " - 1]";
+                  resultStr += ", events[" + pyrPipe->getGlobalLevelStr() + " - 1]"; // wait event
+                  resultStr += ", events[" + pyrPipe->getGlobalLevelStr() + "]"; // record event
+                  break;
+                case PyramidOperation::FILTER:
+                  resultStr += ", stream[" + pyrPipe->getGlobalLevelStr() + " - 1]";
+                  break;
+                case PyramidOperation::EXPAND:
+                  resultStr += ", stream[" + pyrPipe->getGlobalLevelStr() + "]";
+                  resultStr += ", events[" + std::to_string(pyrPipe->getDepth()) + " * 2";// wait event
+                  resultStr += " - " + pyrPipe->getGlobalLevelStr() + " - 2]";
+                  resultStr += ", events[" + std::to_string(pyrPipe->getDepth()) + " * 2";// record event
+                  resultStr += " - " + pyrPipe->getGlobalLevelStr() + " - 1]";
+                  break;
+              }
+            }
+          } else { // non-pyramid app
+            resultStr += ", " + K->getStream();
+          }
         }
         resultStr += ");";
         break;
