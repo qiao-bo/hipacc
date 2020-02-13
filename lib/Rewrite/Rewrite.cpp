@@ -100,30 +100,14 @@ class Rewrite : public ASTConsumer,  public RecursiveASTVisitor<Rewrite> {
     // store interpolation methods required for CUDA
     SmallVector<std::string, 16> InterpolationDefinitionsGlobal;
 
+    // pipeline global config for pyramid
+    HipaccPyramidPipeline *pyramidPipe;
+
     // pointer to main function
     FunctionDecl *mainFD;
     FileID mainFileID;
     unsigned literalCount;
     bool skipTransfer;
-
-    //TODO move this to a library
-    class PyramidManager {
-      public:
-        bool singleStream;
-        bool multiStream;
-        unsigned depth;
-
-        PyramidManager() :
-          singleStream(false),
-          multiStream(true),
-          depth(0)
-        {}
-      public:
-        void updateDepth(unsigned d) {
-          depth = (d > depth) ? d : depth;
-        }
-    };
-    PyramidManager *pyramidConfig;
 
   public:
     Rewrite(CompilerInstance &CI, CompilerOptions &options,
@@ -139,10 +123,10 @@ class Rewrite : public ASTConsumer,  public RecursiveASTVisitor<Rewrite> {
       builtins(CI.getASTContext()),
       stringCreator(CreateHostStrings(options, targetDevice)),
       compilerClasses(CompilerKnownClasses()),
+      pyramidPipe(nullptr),
       mainFD(nullptr),
       literalCount(0),
-      skipTransfer(false),
-      pyramidConfig(nullptr)
+      skipTransfer(false)
     {}
 
     // RecursiveASTVisitor
@@ -403,30 +387,30 @@ void Rewrite::HandleTranslationUnit(ASTContext &) {
 
   // write CUDA streams
   if (compilerOptions.asyncKernelLaunch()) {
-    if (pyramidConfig->singleStream) {
+    if (pyramidPipe->isSingleStream()) {
       initStr += "cudaStream_t stream;";
       initStr += "\n" + stringCreator.getIndent();
 
       initStr += "cudaStreamCreate(&stream);";
       initStr += "\n" + stringCreator.getIndent();
-    } else if (pyramidConfig->multiStream) {
+    } else if (pyramidPipe->isMultiStream()) {
       initStr += "cudaStream_t stream[";
-      initStr += std::to_string(pyramidConfig->depth) + " - 1];";
+      initStr += std::to_string(pyramidPipe->getDepth()) + " - 1];";
       initStr += "\n" + stringCreator.getIndent();
 
       initStr += "for (int i = 0; i < ";
-      initStr += std::to_string(pyramidConfig->depth) + " - 1; i++) {";
+      initStr += std::to_string(pyramidPipe->getDepth()) + " - 1; i++) {";
       initStr += "\n" + stringCreator.getIndent();
       initStr += "  cudaStreamCreate(&stream[i]);";
       initStr += "\n" + stringCreator.getIndent() + "}";
       initStr += "\n" + stringCreator.getIndent();
 
       initStr += "cudaEvent_t events[";
-      initStr += std::to_string(pyramidConfig->depth) + " * 2];";
+      initStr += std::to_string(pyramidPipe->getDepth()) + " * 2];";
       initStr += "\n" + stringCreator.getIndent();
 
       initStr += "for (int i = 0; i < ";
-      initStr += std::to_string(pyramidConfig->depth) + " * 2; i++) {";
+      initStr += std::to_string(pyramidPipe->getDepth()) + " * 2; i++) {";
       initStr += "\n" + stringCreator.getIndent();
       initStr += "  cudaEventCreate(&events[i]);";
       initStr += "\n" + stringCreator.getIndent() + "}";
@@ -468,21 +452,21 @@ void Rewrite::HandleTranslationUnit(ASTContext &) {
 
   // insert cleanup before last statement
   if (compilerOptions.asyncKernelLaunch()) {
-    if (pyramidConfig->singleStream) {
+    if (pyramidPipe->isSingleStream()) {
       cleanupStr = "cudaStreamDestroy(stream);";
       cleanupStr += "\n" + stringCreator.getIndent();
-    } else if (pyramidConfig->multiStream) {
+    } else if (pyramidPipe->isMultiStream()) {
       cleanupStr += "for (int i = 0; i < ";
-      cleanupStr += std::to_string(pyramidConfig->depth) + " - 1; i++) {";
+      cleanupStr += std::to_string(pyramidPipe->getDepth()) + " - 1; i++) {";
       cleanupStr += "\n" + stringCreator.getIndent();
-      cleanupStr += "  cudaStreamDestroy(&stream[i]);";
+      cleanupStr += "  cudaStreamDestroy(stream[i]);";
       cleanupStr += "\n" + stringCreator.getIndent() + "}";
       cleanupStr += "\n" + stringCreator.getIndent();
 
       cleanupStr += "for (int i = 0; i < ";
-      cleanupStr += std::to_string(pyramidConfig->depth) + " * 2; i++) {";
+      cleanupStr += std::to_string(pyramidPipe->getDepth()) + " * 2; i++) {";
       cleanupStr += "\n" + stringCreator.getIndent();
-      cleanupStr += "  cudaEventDestroy(&events[i]);";
+      cleanupStr += "  cudaEventDestroy(events[i]);";
       cleanupStr += "\n" + stringCreator.getIndent() + "}";
       cleanupStr += "\n" + stringCreator.getIndent();
     } else {
@@ -707,6 +691,20 @@ bool Rewrite::VisitCXXRecordDecl(CXXRecordDecl *D) {
         KC->setBinningFunction(method);
         continue;
       }
+
+      // pyramid functions
+      if (method->getNameAsString() == "_operatePyramidReduce") {
+        KC->setPyramidOperation(PyramidOperation::REDUCE);
+        continue;
+      }
+      if (method->getNameAsString() == "_operatePyramidFilter") {
+        KC->setPyramidOperation(PyramidOperation::FILTER);
+        continue;
+      }
+      if (method->getNameAsString() == "_operatePyramidExpand") {
+        KC->setPyramidOperation(PyramidOperation::EXPAND);
+        continue;
+      }
     }
   }
 
@@ -837,9 +835,22 @@ bool Rewrite::VisitDeclStmt(DeclStmt *D) {
 
         Pyr->setDepth(pyr_depth);
 
-        // create basic structure for pyramid optimization
-        pyramidConfig = new PyramidManager();
-        pyramidConfig->updateDepth(pyr_depth);
+        if (compilerOptions.asyncKernelLaunch() && compilerOptions.emitCUDA()) {
+          pyramidPipe->updateDepth(pyr_depth);
+          std::string pyr_name = VD->getName();
+          pyramidPipe->setGlobalLevelStr(pyr_name + ".level()");
+        }
+
+        // TODO, generalize this to async h2d
+        auto arg = CCE->getArg(0)->IgnoreParenCasts();
+        HipaccImage *Img = nullptr;
+        if (auto DRE = dyn_cast<DeclRefExpr>(arg)) {
+            // check if the argument specifies the image
+            if (ImgDeclMap.count(DRE->getDecl())) {
+              Img = ImgDeclMap[DRE->getDecl()];
+              Img->setStream("stream[0]");
+            }
+        }
 
         // create memory allocation string
         std::string newStr;
@@ -1339,6 +1350,20 @@ bool Rewrite::VisitDeclStmt(DeclStmt *D) {
           HipaccKernel *K = new HipaccKernel(Context, VD, KC, compilerOptions);
           KernelDeclMap[VD] = K;
 
+          if (compilerOptions.asyncKernelLaunch() && compilerOptions.emitCUDA()) {
+            switch (KC->getPyramidOperation()) {
+              case PyramidOperation::REDUCE:
+                pyramidPipe->recordKernel(VD, PyramidOperation::REDUCE);
+                break;
+              case PyramidOperation::FILTER:
+                pyramidPipe->recordKernel(VD, PyramidOperation::FILTER);
+                break;
+              case PyramidOperation::EXPAND:
+                pyramidPipe->recordKernel(VD, PyramidOperation::EXPAND);
+                break;
+            }
+          }
+
           // remove kernel declaration
           TextRewriter.RemoveText(D->getSourceRange());
 
@@ -1437,6 +1462,10 @@ bool Rewrite::VisitFunctionDecl(FunctionDecl *D) {
     assert(D->getBody() && "main function has no body.");
     assert(isa<CompoundStmt>(D->getBody()) && "CompoundStmt for main body expected.");
     mainFD = D;
+    // TODO, triggle pyramid config
+    if (compilerOptions.emitCUDA() && compilerOptions.asyncKernelLaunch()) {
+      pyramidPipe = new HipaccPyramidPipeline();
+    }
   }
 
   return true;
@@ -1719,7 +1748,12 @@ bool Rewrite::VisitCXXMemberCallExpr(CXXMemberCallExpr *E) {
         // TODO: handle the case when only reduce function is specified
         //
         // create kernel call string
-        stringCreator.writeKernelCall(K, newStr);
+        if (compilerOptions.emitCUDA() && compilerOptions.asyncKernelLaunch() &&
+            pyramidPipe->isPipelineKernelLaunch()) {
+          stringCreator.writeKernelCall(K, newStr, pyramidPipe);
+        } else {
+          stringCreator.writeKernelCall(K, newStr);
+        }
 
         // rewrite kernel invocation
         replaceText(E->getBeginLoc(), E->getBeginLoc(), ';', newStr);
@@ -1836,6 +1870,10 @@ bool Rewrite::VisitCallExpr (CallExpr *E) {
         SourceRange range(E->getBeginLoc(),
                           E->getBeginLoc().getLocWithOffset(std::string("traverse").length()-1));
         TextRewriter.ReplaceText(range, "hipaccTraverse");
+
+        if (compilerOptions.emitCUDA() && compilerOptions.asyncKernelLaunch()) {
+          pyramidPipe->enablePipelineKernelLaunch();
+        }
       }
     }
   }
