@@ -106,6 +106,25 @@ class Rewrite : public ASTConsumer,  public RecursiveASTVisitor<Rewrite> {
     unsigned literalCount;
     bool skipTransfer;
 
+    //TODO move this to a library
+    class PyramidManager {
+      public:
+        bool singleStream;
+        bool multiStream;
+        unsigned depth;
+
+        PyramidManager() :
+          singleStream(false),
+          multiStream(true),
+          depth(0)
+        {}
+      public:
+        void updateDepth(unsigned d) {
+          depth = (d > depth) ? d : depth;
+        }
+    };
+    PyramidManager *pyramidConfig;
+
   public:
     Rewrite(CompilerInstance &CI, CompilerOptions &options,
         std::unique_ptr<llvm::raw_pwrite_stream> Out) :
@@ -122,7 +141,8 @@ class Rewrite : public ASTConsumer,  public RecursiveASTVisitor<Rewrite> {
       compilerClasses(CompilerKnownClasses()),
       mainFD(nullptr),
       literalCount(0),
-      skipTransfer(false)
+      skipTransfer(false),
+      pyramidConfig(nullptr)
     {}
 
     // RecursiveASTVisitor
@@ -381,15 +401,39 @@ void Rewrite::HandleTranslationUnit(ASTContext &) {
   // get initialization string for run-time
   stringCreator.writeInitialization(initStr);
 
-  // TODO, iterate over all kernels to collect events and streams to be
-  // initialized
   // write CUDA streams
   if (compilerOptions.asyncKernelLaunch()) {
+    if (pyramidConfig->singleStream) {
+      initStr += "cudaStream_t stream;";
+      initStr += "\n" + stringCreator.getIndent();
 
-    initStr += "cudaStream_t stream;";
-    initStr += "\n" + stringCreator.getIndent();
-    initStr += "cudaStreamCreate(&stream);";
-    initStr += "\n" + stringCreator.getIndent();
+      initStr += "cudaStreamCreate(&stream);";
+      initStr += "\n" + stringCreator.getIndent();
+    } else if (pyramidConfig->multiStream) {
+      initStr += "cudaStream_t stream[";
+      initStr += std::to_string(pyramidConfig->depth) + " - 1];";
+      initStr += "\n" + stringCreator.getIndent();
+
+      initStr += "for (int i = 0; i < ";
+      initStr += std::to_string(pyramidConfig->depth) + " - 1; i++) {";
+      initStr += "\n" + stringCreator.getIndent();
+      initStr += "  cudaStreamCreate(&stream[i]);";
+      initStr += "\n" + stringCreator.getIndent() + "}";
+      initStr += "\n" + stringCreator.getIndent();
+
+      initStr += "cudaEvent_t events[";
+      initStr += std::to_string(pyramidConfig->depth) + " * 2];";
+      initStr += "\n" + stringCreator.getIndent();
+
+      initStr += "for (int i = 0; i < ";
+      initStr += std::to_string(pyramidConfig->depth) + " * 2; i++) {";
+      initStr += "\n" + stringCreator.getIndent();
+      initStr += "  cudaEventCreate(&events[i]);";
+      initStr += "\n" + stringCreator.getIndent() + "}";
+      initStr += "\n" + stringCreator.getIndent();
+    } else {
+      //
+    }
   }
 
   // load OpenCL kernel files and compile the OpenCL kernels
@@ -424,8 +468,26 @@ void Rewrite::HandleTranslationUnit(ASTContext &) {
 
   // insert cleanup before last statement
   if (compilerOptions.asyncKernelLaunch()) {
-    cleanupStr = "cudaStreamDestroy(stream);";
-    cleanupStr += "\n" + stringCreator.getIndent();
+    if (pyramidConfig->singleStream) {
+      cleanupStr = "cudaStreamDestroy(stream);";
+      cleanupStr += "\n" + stringCreator.getIndent();
+    } else if (pyramidConfig->multiStream) {
+      cleanupStr += "for (int i = 0; i < ";
+      cleanupStr += std::to_string(pyramidConfig->depth) + " - 1; i++) {";
+      cleanupStr += "\n" + stringCreator.getIndent();
+      cleanupStr += "  cudaStreamDestroy(&stream[i]);";
+      cleanupStr += "\n" + stringCreator.getIndent() + "}";
+      cleanupStr += "\n" + stringCreator.getIndent();
+
+      cleanupStr += "for (int i = 0; i < ";
+      cleanupStr += std::to_string(pyramidConfig->depth) + " * 2; i++) {";
+      cleanupStr += "\n" + stringCreator.getIndent();
+      cleanupStr += "  cudaEventDestroy(&events[i]);";
+      cleanupStr += "\n" + stringCreator.getIndent() + "}";
+      cleanupStr += "\n" + stringCreator.getIndent();
+    } else {
+      //
+    }
     TextRewriter.InsertTextBefore(CS->body_back()->getBeginLoc(), cleanupStr);
   }
 
@@ -772,7 +834,13 @@ bool Rewrite::VisitDeclStmt(DeclStmt *D) {
             << Pyr->getName();
         }
         int64_t pyr_depth = CCE->getArg(1)->EvaluateKnownConstInt(Context).getSExtValue();
+
         Pyr->setDepth(pyr_depth);
+
+        // create basic structure for pyramid optimization
+        pyramidConfig = new PyramidManager();
+        pyramidConfig->updateDepth(pyr_depth);
+
         // create memory allocation string
         std::string newStr;
         stringCreator.writePyramidAllocation(VD->getName(),
