@@ -651,17 +651,46 @@ void HipaccKernel::createHostArgInfo(ArrayRef<Expr *> hostArgs, std::string
   }
 }
 
+unsigned HipaccPyramidPipeline::getNumWaves(HipaccKernel *K, unsigned w, unsigned h) {
+  unsigned sx = K->getNumThreadsX();
+  unsigned sy = K->getNumThreadsY();
+  unsigned r_reg = std::max(K->getResourceUsageReg(), (unsigned)1);
+  unsigned r_smem = std::max(K->getResourceUsageSmem(), (unsigned)1);
+  unsigned k_blk = std::ceil((float)w / sx) * std::ceil((float)h / sy);
+
+  unsigned n_blk_reg = std::floor((float)max_total_registers / (r_reg * sx * sy));
+  unsigned n_blk_smem = std::floor((float)max_total_shared_memory / r_smem);
+  unsigned n_blk_thr = std::floor((float)max_threads_per_multiprocessor / (sx*sy));
+  unsigned n_blk = std::min({n_blk_reg, n_blk_smem, n_blk_thr, max_blocks_per_multiprocessor});
+
+  return std::ceil((float)k_blk / (n_blk * num_sms));
+}
+
 
 void HipaccPyramidPipeline::printStreamPipelineInfo() {
   llvm::errs() << "\nInformation for Pyramid cuda stream scheduling\n";
-  std::string deviceInfo_str;
+  std::string deviceInfo_str, singleStream_str, multiStream_str;
   deviceInfo_str += "  GPU arch: " + getTargetDeviceName() + "\n";
   deviceInfo_str += "  max_register_per_sm: " + std::to_string(max_total_registers) + "\n";
   deviceInfo_str += "  max_shared_memory_per_sm: " + std::to_string(max_total_shared_memory) + "\n";
   deviceInfo_str += "  max_threads_per_sm: " + std::to_string(max_threads_per_multiprocessor) + "\n";
   deviceInfo_str += "  max_blocks_per_sm: " + std::to_string(max_blocks_per_multiprocessor) + "\n";
-
   llvm::errs() << deviceInfo_str;
+
+  unsigned baseImgSzX = baseImgs.front()->getSizeX(); // assume same-sized base images
+  unsigned baseImgSzY = baseImgs.front()->getSizeY();
+
+  singleStream_str += "  -single-steam wave estimation";
+  for (size_t d=0; d<depth; ++d) {
+    for (auto kp : KernelMap) {
+      unsigned numWaves = getNumWaves(kp.first, baseImgSzX, baseImgSzY);
+      singleStream_str += "    level " + std::to_string(d) + " kernel " + kp.first->getName();
+      singleStream_str += " takes " + std::to_string(numWaves) + " waves\n";
+    }
+    baseImgSzX /= 2;
+    baseImgSzY /= 2;
+  }
+  llvm::errs() << singleStream_str;
 }
 
 

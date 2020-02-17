@@ -767,7 +767,25 @@ bool Rewrite::VisitDeclStmt(DeclStmt *D) {
         std::string width_str  = convertToString(CCE->getArg(0));
         std::string height_str = convertToString(CCE->getArg(1));
 
-        if (compilerOptions.emitC99()) {
+        if (compilerOptions.asyncKernelLaunch() && compilerOptions.emitCUDA()) {
+          // extract depth level from pyramid
+          unsigned IDConstant = Diags.getCustomDiagID(DiagnosticsEngine::Error,
+                  "Constant expression for %0 argument of Image %1 required (Pyramid stream CUDA only).");
+          if (!CCE->getArg(0)->isEvaluatable(Context)) {
+            Diags.Report(CCE->getArg(0)->getExprLoc(), IDConstant) << "width"
+              << Img->getName();
+          }
+          if (!CCE->getArg(1)->isEvaluatable(Context)) {
+            Diags.Report(CCE->getArg(1)->getExprLoc(), IDConstant) << "height"
+              << Img->getName();
+          }
+
+          int64_t img_stride = CCE->getArg(0)->EvaluateKnownConstInt(Context).getSExtValue();
+          int64_t img_height = CCE->getArg(1)->EvaluateKnownConstInt(Context).getSExtValue();
+
+          Img->setSizeX(img_stride);
+          Img->setSizeY(img_height);
+        } else if (compilerOptions.emitC99()) {
           // check if the parameter can be resolved to a constant
           unsigned IDConstant = Diags.getCustomDiagID(DiagnosticsEngine::Error,
                 "Constant expression for %0 argument of Image %1 required (C/C++ only).");
@@ -855,6 +873,7 @@ bool Rewrite::VisitDeclStmt(DeclStmt *D) {
                 if (pyramidPipe->isMultiStream()) {
                   Img->setStream("stream[0]");
                 }
+                pyramidPipe->recordBaseImg(Img);
               }
           }
         }
@@ -1360,13 +1379,13 @@ bool Rewrite::VisitDeclStmt(DeclStmt *D) {
           if (compilerOptions.asyncKernelLaunch() && compilerOptions.emitCUDA()) {
             switch (KC->getPyramidOperation()) {
               case PyramidOperation::REDUCE:
-                pyramidPipe->recordKernel(VD, PyramidOperation::REDUCE);
+                pyramidPipe->recordKernel(VD, K, PyramidOperation::REDUCE);
                 break;
               case PyramidOperation::FILTER:
-                pyramidPipe->recordKernel(VD, PyramidOperation::FILTER);
+                pyramidPipe->recordKernel(VD, K, PyramidOperation::FILTER);
                 break;
               case PyramidOperation::EXPAND:
-                pyramidPipe->recordKernel(VD, PyramidOperation::EXPAND);
+                pyramidPipe->recordKernel(VD, K, PyramidOperation::EXPAND);
                 break;
             }
           }

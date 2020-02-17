@@ -207,6 +207,7 @@ class HipaccDevice : public HipaccDeviceOptions {
     // NVIDIA only device properties
     unsigned num_alus;
     unsigned num_sfus;
+    unsigned num_sms;
 
   public:
     explicit HipaccDevice(CompilerOptions &options) :
@@ -215,7 +216,8 @@ class HipaccDevice : public HipaccDeviceOptions {
       max_threads_per_warp(32),
       max_blocks_per_multiprocessor(8),
       num_alus(0),
-      num_sfus(0)
+      num_sfus(0),
+      num_sms(1)
     {
       switch (target_device) {
         case Device::CPU:
@@ -262,6 +264,11 @@ class HipaccDevice : public HipaccDeviceOptions {
           if (target_device==Device::Kepler_30) {
             max_register_per_thread = 63;
           }
+          if (target_device==Device::Kepler_30) {
+            num_sms = 8;
+          } else if (target_device==Device::Kepler_35) {
+            num_sms = 13;
+          }
           break;
         case Device::Maxwell_50:
         case Device::Maxwell_52:
@@ -276,6 +283,7 @@ class HipaccDevice : public HipaccDeviceOptions {
           max_register_per_thread = 255;
           num_alus = 128;
           num_sfus = 32;
+          num_sms = 46;
           if (target_device==Device::Maxwell_52) {
             max_total_shared_memory = 98304;
           }

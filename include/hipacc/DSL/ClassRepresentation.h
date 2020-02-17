@@ -186,8 +186,11 @@ class HipaccPyramidPipeline : public HipaccDevice {
     bool multiStream;
     bool pipelineKernelLaunch;
     unsigned depth;
+
+    SmallVector<HipaccImage *, 16> baseImgs;
     std::string global_level_str;
     llvm::DenseMap<ValueDecl *, PyramidOperation> KernelDeclMap;
+    llvm::DenseMap<HipaccKernel *, PyramidOperation> KernelMap;
 
   public:
     HipaccPyramidPipeline(CompilerOptions &options) :
@@ -203,6 +206,9 @@ class HipaccPyramidPipeline : public HipaccDevice {
       depth = (d > depth) ? d : depth;
     }
     unsigned getDepth() { return depth; }
+    void recordBaseImg(HipaccImage *img) {
+      baseImgs.push_back(img);
+    }
     void setGlobalLevelStr(std::string level) {
       if (global_level_str.empty()) {
         global_level_str = level;
@@ -215,8 +221,9 @@ class HipaccPyramidPipeline : public HipaccDevice {
     bool isMultiStream() { return multiStream; }
     void setSingleStream(bool s) { singleStream = s; }
     void setMultiStream(bool s) { multiStream = s; }
-    void recordKernel(ValueDecl *VD, PyramidOperation pyrOp) {
+    void recordKernel(ValueDecl *VD, HipaccKernel *K, PyramidOperation pyrOp) {
       KernelDeclMap[VD] = pyrOp;
+      KernelMap[K] = pyrOp;
     }
     bool isRecordedKernel(ValueDecl *VD) { return KernelDeclMap.count(VD); }
     PyramidOperation getPyramidOperation(ValueDecl *VD) {
@@ -230,6 +237,7 @@ class HipaccPyramidPipeline : public HipaccDevice {
       return pipelineKernelLaunch;
     }
     void printStreamPipelineInfo();
+    unsigned getNumWaves(HipaccKernel *K, unsigned w, unsigned h);
 };
 
 
@@ -827,6 +835,8 @@ class HipaccKernel : public HipaccKernelFeatures {
       // recreate parameter information
       createArgInfo();
     }
+    unsigned getResourceUsageReg() { return num_reg; }
+    unsigned getResourceUsageSmem() { return num_smem; }
 
     void setDefaultConfig();
 
