@@ -824,32 +824,33 @@ bool Rewrite::VisitDeclStmt(DeclStmt *D) {
         std::string image_str = convertToString(CCE->getArg(0));
         std::string depth_str = convertToString(CCE->getArg(1));
 
-        // extract depth level from pyramid
-        unsigned IDConstant = Diags.getCustomDiagID(DiagnosticsEngine::Error,
-                "Constant expression for %0 argument of Pyramid %1 required (CUDA only).");
-        if (!CCE->getArg(1)->isEvaluatable(Context)) {
-          Diags.Report(CCE->getArg(1)->getExprLoc(), IDConstant) << "depth"
-            << Pyr->getName();
-        }
-        int64_t pyr_depth = CCE->getArg(1)->EvaluateKnownConstInt(Context).getSExtValue();
-
-        Pyr->setDepth(pyr_depth);
-
         if (compilerOptions.asyncKernelLaunch() && compilerOptions.emitCUDA()) {
+          // extract depth level from pyramid
+          unsigned IDConstant = Diags.getCustomDiagID(DiagnosticsEngine::Error,
+                  "Constant expression for %0 argument of Pyramid %1 required (CUDA only).");
+          if (!CCE->getArg(1)->isEvaluatable(Context)) {
+            Diags.Report(CCE->getArg(1)->getExprLoc(), IDConstant) << "depth"
+              << Pyr->getName();
+          }
+          int64_t pyr_depth = CCE->getArg(1)->EvaluateKnownConstInt(Context).getSExtValue();
+          Pyr->setDepth(pyr_depth);
+
           pyramidPipe->updateDepth(pyr_depth);
           std::string pyr_name = VD->getName();
           pyramidPipe->setGlobalLevelStr(pyr_name + ".level()");
-        }
 
-        // TODO, generalize this to async h2d
-        auto arg = CCE->getArg(0)->IgnoreParenCasts();
-        HipaccImage *Img = nullptr;
-        if (auto DRE = dyn_cast<DeclRefExpr>(arg)) {
-            // check if the argument specifies the image
-            if (ImgDeclMap.count(DRE->getDecl())) {
-              Img = ImgDeclMap[DRE->getDecl()];
-              Img->setStream("stream[0]");
-            }
+          // TODO, generalize this to async h2d
+          auto arg = CCE->getArg(0)->IgnoreParenCasts();
+          HipaccImage *Img = nullptr;
+          if (auto DRE = dyn_cast<DeclRefExpr>(arg)) {
+              // check if the argument specifies the image
+              if (ImgDeclMap.count(DRE->getDecl())) {
+                Img = ImgDeclMap[DRE->getDecl()];
+                if (pyramidPipe->isMultiStream()) {
+                  Img->setStream("stream[0]");
+                }
+              }
+          }
         }
 
         // create memory allocation string
