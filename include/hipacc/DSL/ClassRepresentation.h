@@ -178,20 +178,26 @@ class HipaccPyramid : public HipaccImage {
 
 
 // TODO, generalize this to an abstract class interface
-class HipaccPyramidPipeline {
+class HipaccPyramidPipeline : public HipaccDevice {
   private:
+    CompilerOptions &options;
+
     bool singleStream;
     bool multiStream;
     bool pipelineKernelLaunch;
     unsigned depth;
     std::string global_level_str;
     llvm::DenseMap<ValueDecl *, PyramidOperation> KernelDeclMap;
+
   public:
-    HipaccPyramidPipeline() :
-      singleStream(false),
-      multiStream(true),
+    HipaccPyramidPipeline(CompilerOptions &options) :
+      HipaccDevice(options),
+      options(options),
+      singleStream(true),
+      multiStream(false),
       pipelineKernelLaunch(false),
-      depth(0){}
+      depth(0)
+    {}
 
     void updateDepth(unsigned d) {
       depth = (d > depth) ? d : depth;
@@ -223,6 +229,7 @@ class HipaccPyramidPipeline {
     bool isPipelineKernelLaunch() {
       return pipelineKernelLaunch;
     }
+    void printStreamPipelineInfo();
 };
 
 

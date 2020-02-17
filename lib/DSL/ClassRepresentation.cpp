@@ -651,5 +651,20 @@ void HipaccKernel::createHostArgInfo(ArrayRef<Expr *> hostArgs, std::string
   }
 }
 
+
+void HipaccPyramidPipeline::printStreamPipelineInfo() {
+  llvm::errs() << "\nInformation for Pyramid cuda stream scheduling\n";
+  std::string deviceInfo_str;
+  deviceInfo_str += "  GPU arch: " + getTargetDeviceName() + "\n";
+  deviceInfo_str += "  max_register_per_sm: " + std::to_string(max_total_registers) + "\n";
+  deviceInfo_str += "  max_shared_memory_per_sm: " + std::to_string(max_total_shared_memory) + "\n";
+  deviceInfo_str += "  max_threads_per_sm: " + std::to_string(max_threads_per_multiprocessor) + "\n";
+  deviceInfo_str += "  max_blocks_per_sm: " + std::to_string(max_blocks_per_multiprocessor) + "\n";
+
+  llvm::errs() << deviceInfo_str;
+}
+
+
+
 // vim: set ts=2 sw=2 sts=2 et ai:
 

@@ -385,6 +385,12 @@ void Rewrite::HandleTranslationUnit(ASTContext &) {
   // get initialization string for run-time
   stringCreator.writeInitialization(initStr);
 
+  // print pyramid pipeline info for cuda
+  if (compilerOptions.emitCUDA() && compilerOptions.asyncKernelLaunch() &&
+      pyramidPipe->isPipelineKernelLaunch()) {
+      pyramidPipe->printStreamPipelineInfo();
+  }
+
   // write CUDA streams
   if (compilerOptions.asyncKernelLaunch()) {
     if (pyramidPipe->isSingleStream()) {
@@ -1465,7 +1471,7 @@ bool Rewrite::VisitFunctionDecl(FunctionDecl *D) {
     mainFD = D;
     // TODO, triggle pyramid config
     if (compilerOptions.emitCUDA() && compilerOptions.asyncKernelLaunch()) {
-      pyramidPipe = new HipaccPyramidPipeline();
+      pyramidPipe = new HipaccPyramidPipeline(compilerOptions);
     }
   }
 

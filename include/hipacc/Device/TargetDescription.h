@@ -78,6 +78,7 @@ class HipaccDeviceOptions {
         case Device::Maxwell_50:
         case Device::Maxwell_52:
         case Device::Maxwell_53:
+        case Device::Turing_75:
           alignment = 256;
           if (options.emitCUDA()) local_memory_threshold = 6;
           else local_memory_threshold = 11;
@@ -265,6 +266,7 @@ class HipaccDevice : public HipaccDeviceOptions {
         case Device::Maxwell_50:
         case Device::Maxwell_52:
         case Device::Maxwell_53:
+        case Device::Turing_75:
           max_blocks_per_multiprocessor = 32;
           max_threads_per_block = 1024;
           max_warps_per_multiprocessor = 64;
@@ -343,7 +345,7 @@ class HipaccDevice : public HipaccDeviceOptions {
 
     bool isNVIDIAGPU() {
       return target_device >= Device::Fermi_20 &&
-             target_device <= Device::Maxwell_53;
+             target_device <= Device::Turing_75;
     }
 
     std::string getTargetDeviceName() {
@@ -358,6 +360,7 @@ class HipaccDevice : public HipaccDeviceOptions {
         case Device::Maxwell_50:      return "NVIDIA Maxwell (50)";
         case Device::Maxwell_52:      return "NVIDIA Maxwell (52)";
         case Device::Maxwell_53:      return "NVIDIA Maxwell (53)";
+        case Device::Turing_75:       return "NVIDIA Turing (75)";
         case Device::Evergreen:       return "AMD Evergreen";
         case Device::NorthernIsland:  return "AMD Northern Island";
         //case Device::SouthernIsland:  return "AMD Southern Island";

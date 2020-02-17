@@ -49,6 +49,7 @@ enum class Device {
   Maxwell_50        = 50,
   Maxwell_52        = 52,
   Maxwell_53        = 53,
+  Turing_75         = 75,
   Evergreen         = 58,
   NorthernIsland    = 69,
   //SouthernIsland    = 79
