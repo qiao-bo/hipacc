@@ -651,7 +651,7 @@ void HipaccKernel::createHostArgInfo(ArrayRef<Expr *> hostArgs, std::string
   }
 }
 
-unsigned HipaccPyramidPipeline::getNumWaves(HipaccKernel *K, unsigned w, unsigned h) {
+unsigned HipaccPyramidPipeline::getNumWaves(HipaccKernel *K, unsigned w, unsigned h, bool print) {
   unsigned sx = K->getNumThreadsX();
   unsigned sy = K->getNumThreadsY();
   unsigned r_reg = std::max(K->getResourceUsageReg(), (unsigned)1);
@@ -663,6 +663,11 @@ unsigned HipaccPyramidPipeline::getNumWaves(HipaccKernel *K, unsigned w, unsigne
   unsigned n_blk_thr = std::floor((float)max_threads_per_multiprocessor / (sx*sy));
   unsigned n_blk = std::min({n_blk_reg, n_blk_smem, n_blk_thr, max_blocks_per_multiprocessor});
 
+  if (print) {
+    llvm::errs() << "    [wave-info] r_reg:" << r_reg << " r_smem:" << r_smem << " k_blk:" << k_blk << "\n";
+		llvm::errs() << "                n_blk_reg:" << n_blk_reg << " n_blk_smem:" << n_blk_smem << " n_blk_thr:"
+                 << n_blk_thr << " n_blk:" << n_blk << "\n";
+  }
   return std::ceil((float)k_blk / (n_blk * num_sms));
 }
 
@@ -675,17 +680,20 @@ void HipaccPyramidPipeline::printStreamPipelineInfo() {
   deviceInfo_str += "  max_shared_memory_per_sm: " + std::to_string(max_total_shared_memory) + "\n";
   deviceInfo_str += "  max_threads_per_sm: " + std::to_string(max_threads_per_multiprocessor) + "\n";
   deviceInfo_str += "  max_blocks_per_sm: " + std::to_string(max_blocks_per_multiprocessor) + "\n";
+  deviceInfo_str += "  num_sm: " + std::to_string(num_sms) + "\n";
   llvm::errs() << deviceInfo_str;
 
   unsigned baseImgSzX = baseImgs.front()->getSizeX(); // assume same-sized base images
   unsigned baseImgSzY = baseImgs.front()->getSizeY();
 
-  singleStream_str += "  -single-steam wave estimation";
+  singleStream_str += "  -single-steam wave estimation\n";
   for (size_t d=0; d<depth; ++d) {
     for (auto kp : KernelMap) {
       unsigned numWaves = getNumWaves(kp.first, baseImgSzX, baseImgSzY);
-      singleStream_str += "    level " + std::to_string(d) + " kernel " + kp.first->getName();
-      singleStream_str += " takes " + std::to_string(numWaves) + " waves\n";
+      singleStream_str += "    level " + std::to_string(d) + " " + getPyramidOperationStr(kp.second);
+      singleStream_str += " kernel " + kp.first->getName() + " (";
+      singleStream_str += std::to_string(kp.first->getNumThreadsX()) + "x" + std::to_string(kp.first->getNumThreadsY());
+      singleStream_str += ") takes " + std::to_string(numWaves) + " waves\n";
     }
     baseImgSzX /= 2;
     baseImgSzY /= 2;

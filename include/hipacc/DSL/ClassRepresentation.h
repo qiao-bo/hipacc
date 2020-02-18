@@ -202,6 +202,15 @@ class HipaccPyramidPipeline : public HipaccDevice {
       depth(0)
     {}
 
+    std::string getPyramidOperationStr(PyramidOperation opr) {
+			switch(opr)
+			{
+					case PyramidOperation::REDUCE : return "REDUCE";
+					case PyramidOperation::FILTER : return "FILTER";
+					case PyramidOperation::EXPAND : return "EXPAND";
+					default: return "PyramidOperation{" + std::to_string(int(opr)) + '}';
+			}
+    }
     void updateDepth(unsigned d) {
       depth = (d > depth) ? d : depth;
     }
@@ -237,7 +246,7 @@ class HipaccPyramidPipeline : public HipaccDevice {
       return pipelineKernelLaunch;
     }
     void printStreamPipelineInfo();
-    unsigned getNumWaves(HipaccKernel *K, unsigned w, unsigned h);
+    unsigned getNumWaves(HipaccKernel *K, unsigned w, unsigned h, bool print=0);
 };
 
 
