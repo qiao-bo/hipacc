@@ -201,7 +201,9 @@ class HipaccPyramidPipeline : public HipaccDevice {
     {
       if (options.getNumStreams() == 1) {
         singleStream = true;
+        multiStream = false;
       } else if (options.getNumStreams() > 1) {
+        singleStream = false;
         multiStream = true;
       }
     }
