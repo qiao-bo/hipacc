@@ -196,11 +196,15 @@ class HipaccPyramidPipeline : public HipaccDevice {
     HipaccPyramidPipeline(CompilerOptions &options) :
       HipaccDevice(options),
       options(options),
-      singleStream(true),
-      multiStream(false),
       pipelineKernelLaunch(false),
       depth(0)
-    {}
+    {
+      if (options.getNumStreams() == 1) {
+        singleStream = true;
+      } else if (options.getNumStreams() > 1) {
+        multiStream = true;
+      }
+    }
 
     std::string getPyramidOperationStr(PyramidOperation opr) {
 			switch(opr)

@@ -102,7 +102,7 @@ void printUsage() {
     << "  -o <file>               Write output to <file>\n"
     << "  --help                  Display available options\n"
     << "  --version               Display version information\n"
-    << "  -use-cuda-stream        Async kernel launch with CUDA streams\n";
+    << "  -use-stream <n>         Async kernel launch with streams\n";
 }
 
 
@@ -248,8 +248,18 @@ int main(int argc, char *argv[]) {
       compilerOptions.setTimeKernels(USER_ON);
       continue;
     }
-    if (StringRef(argv[i]) == "-use-cuda-stream") {
-      compilerOptions.setAsyncKernelLaunch(USER_ON);
+    if (StringRef(argv[i]) == "-use-stream") {
+      assert(i<(argc-1) && "Mandatory integer parameter for -use-stream switch missing.");
+      std::istringstream buffer(argv[i+1]);
+      int val;
+      buffer >> val;
+      if (buffer.fail()) {
+        llvm::errs() << "ERROR: Expected integer parameter for -use-stream switch.\n\n";
+        printUsage();
+        return EXIT_FAILURE;
+      }
+      compilerOptions.setStreamAsyncKernelLaunch(val);
+      ++i;
       continue;
     }
     if (StringRef(argv[i]) == "-use-textures") {

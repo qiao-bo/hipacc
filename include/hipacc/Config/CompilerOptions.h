@@ -90,6 +90,7 @@ class CompilerOptions {
     int reduce_config_num_warps, reduce_config_num_hists;
     int align_bytes;
     int pixels_per_thread;
+    int num_streams;
     Texture texture_type;
     std::string rs_package_name, rs_directory;
 
@@ -134,6 +135,7 @@ class CompilerOptions {
       reduce_config_num_hists(16),
       align_bytes(0),
       pixels_per_thread(1),
+      num_streams(1),
       texture_type(Texture::None),
       rs_package_name("org.hipacc.rs"),
       rs_directory("/data/local/tmp")
@@ -212,8 +214,13 @@ class CompilerOptions {
     void setTimeKernels(CompilerOption o) { time_kernels = o; }
     void setLocalMemory(CompilerOption o) { local_memory = o; }
     void setVectorizeKernels(CompilerOption o) { vectorize_kernels = o; }
-    void setAsyncKernelLaunch(CompilerOption o) { async_kernels = o; }
+    void setStreamAsyncKernelLaunch(int stream) {
+      assert((stream > 0) && "Number of streams must be larger than 0");
+      num_streams = stream;
+      async_kernels = USER_ON;
+    }
 
+    int getNumStreams() { return num_streams; }
 
     void setTextureMemory(Texture type) {
       texture_type = type;
