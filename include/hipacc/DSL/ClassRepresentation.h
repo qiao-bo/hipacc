@@ -192,6 +192,15 @@ class HipaccPyramidPipeline : public HipaccDevice {
     llvm::DenseMap<ValueDecl *, PyramidOperation> KernelDeclMap;
     llvm::DenseMap<HipaccKernel *, PyramidOperation> KernelMap;
 
+    // resource usage in the pipeline
+    struct PyrResource {
+      unsigned reg = 0;
+      unsigned smem = 0;
+      unsigned thr = 0;
+      unsigned blk = 0;
+    };
+    PyrResource UsedResourcePyr;
+
   public:
     HipaccPyramidPipeline(CompilerOptions &options) :
       HipaccDevice(options),
@@ -206,6 +215,34 @@ class HipaccPyramidPipeline : public HipaccDevice {
         singleStream = false;
         multiStream = true;
       }
+      resetResourceUsage();
+    }
+
+    void resetResourceUsage() {
+       UsedResourcePyr.reg = 0;
+       UsedResourcePyr.smem = 0;
+       UsedResourcePyr.thr = 0;
+       UsedResourcePyr.blk = 0;
+    }
+
+    bool hasResourceAvailable(PyrResource &r) {
+      bool reg_available = (max_total_registers - UsedResourcePyr.reg) > r.reg;
+      bool smem_available = (max_total_shared_memory - UsedResourcePyr.smem) > r.smem;
+      bool thr_available = (max_threads_per_multiprocessor - UsedResourcePyr.thr) > r.thr;
+      bool blk_available = (max_blocks_per_multiprocessor - UsedResourcePyr.blk) > r.blk;
+      return (reg_available && smem_available && thr_available && blk_available);
+    }
+
+    bool useResource(PyrResource &r) {
+      if (hasResourceAvailable(r)) {
+        UsedResourcePyr.reg += r.reg;
+        UsedResourcePyr.smem += r.smem;
+        UsedResourcePyr.thr += r.thr;
+        UsedResourcePyr.blk += r.blk;
+        return true;
+      } else {
+        return false;
+      }
     }
 
     std::string getPyramidOperationStr(PyramidOperation opr) {
@@ -217,6 +254,9 @@ class HipaccPyramidPipeline : public HipaccDevice {
 					default: return "PyramidOperation{" + std::to_string(int(opr)) + '}';
 			}
     }
+
+    unsigned getNumWaves(HipaccKernel *K, unsigned w, unsigned h, bool print=0);
+
     void updateDepth(unsigned d) {
       depth = (d > depth) ? d : depth;
     }
@@ -252,7 +292,6 @@ class HipaccPyramidPipeline : public HipaccDevice {
       return pipelineKernelLaunch;
     }
     void printStreamPipelineInfo();
-    unsigned getNumWaves(HipaccKernel *K, unsigned w, unsigned h, bool print=0);
 };
 
 

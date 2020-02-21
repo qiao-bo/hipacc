@@ -668,9 +668,10 @@ unsigned HipaccPyramidPipeline::getNumWaves(HipaccKernel *K, unsigned w, unsigne
 		llvm::errs() << "                n_blk_reg:" << n_blk_reg << " n_blk_smem:" << n_blk_smem << " n_blk_thr:"
                  << n_blk_thr << " n_blk:" << n_blk << "\n";
   }
-  return std::ceil((float)k_blk / (n_blk * num_sms));
-}
 
+  unsigned n_wave = std::ceil((float)k_blk / (n_blk * num_sms));
+  return n_wave;
+}
 
 void HipaccPyramidPipeline::printStreamPipelineInfo() {
   llvm::errs() << "\nInformation for Pyramid cuda stream scheduling\n";
@@ -683,22 +684,102 @@ void HipaccPyramidPipeline::printStreamPipelineInfo() {
   deviceInfo_str += "  num_sm: " + std::to_string(num_sms) + "\n";
   llvm::errs() << deviceInfo_str;
 
-  unsigned baseImgSzX = baseImgs.front()->getSizeX(); // assume same-sized base images
-  unsigned baseImgSzY = baseImgs.front()->getSizeY();
+  unsigned imgSzX = baseImgs.front()->getSizeX(); // assume same-sized base images
+  unsigned imgSzY = baseImgs.front()->getSizeY();
 
+  // single stream info
   singleStream_str += "  -single-steam wave estimation\n";
   for (size_t d=0; d<depth; ++d) {
     for (auto kp : KernelMap) {
-      unsigned numWaves = getNumWaves(kp.first, baseImgSzX, baseImgSzY);
+      unsigned numWaves = getNumWaves(kp.first, imgSzX, imgSzY);
       singleStream_str += "    level " + std::to_string(d) + " " + getPyramidOperationStr(kp.second);
       singleStream_str += " kernel " + kp.first->getName() + " (";
       singleStream_str += std::to_string(kp.first->getNumThreadsX()) + "x" + std::to_string(kp.first->getNumThreadsY());
       singleStream_str += ") takes " + std::to_string(numWaves) + " waves\n";
     }
-    baseImgSzX /= 2;
-    baseImgSzY /= 2;
+    imgSzX /= 2;
+    imgSzY /= 2;
   }
   llvm::errs() << singleStream_str;
+
+  // multi stream info
+  imgSzX = baseImgs.front()->getSizeX(); // assume same-sized base images
+  imgSzY = baseImgs.front()->getSizeY();
+  multiStream_str += "  -multi-steam wave estimation\n";
+
+  HipaccKernel *K_r, *K_f, *K_e; // Unpack kernels
+  for (auto kp : KernelMap) {
+    if (kp.second == PyramidOperation::REDUCE) { K_r = kp.first; }
+    else if (kp.second == PyramidOperation::FILTER) { K_f = kp.first; }
+    else if (kp.second == PyramidOperation::EXPAND) { K_e = kp.first; }
+  }
+  assert(K_r && "no reduce kernel for multi stream pyramid execution");
+  assert(K_f && "no filter kernel for multi stream pyramid execution");
+  assert(K_e && "no expand kernel for multi stream pyramid execution");
+
+  unsigned n_wave_seq = 0;
+  unsigned n_wave_par = 0;
+  unsigned n_p = 0;
+  std::vector<unsigned> S_p;
+  unsigned n_wave_expand = 0;
+
+  for (size_t d=0; d<depth; ++d) {  // reduce + filter, mainly filter
+    unsigned sx = K_f->getNumThreadsX();
+    unsigned sy = K_f->getNumThreadsY();
+    unsigned r_reg = std::max(K_f->getResourceUsageReg(), (unsigned)1);
+    unsigned r_smem = std::max(K_f->getResourceUsageSmem(), (unsigned)1);
+    unsigned k_blk = std::ceil((float)imgSzX / sx) * std::ceil((float)imgSzY / sy);
+    unsigned n_blk_reg = std::floor((float)max_total_registers / (r_reg * sx * sy));
+    unsigned n_blk_smem = std::floor((float)max_total_shared_memory / r_smem);
+    unsigned n_blk_thr = std::floor((float)max_threads_per_multiprocessor / (sx*sy));
+    unsigned n_blk = std::min({n_blk_reg, n_blk_smem, n_blk_thr, max_blocks_per_multiprocessor});
+
+    unsigned n_wave = std::ceil((float)k_blk / (n_blk * num_sms));
+    unsigned n_blk_tail = k_blk % (n_blk * num_sms);
+
+    multiStream_str += "    depth " + std::to_string(d) + ": filter kernel uses ";
+    multiStream_str += std::to_string(n_wave) + " waves and " + std::to_string(n_blk_tail) + " blocks in the tail\n";
+
+    if (n_wave > 1) {  // more than one wave, fine-grained level execution
+      resetResourceUsage();
+      n_wave_seq += n_wave;
+    } else if (n_blk_tail == 0) { // exactly one wave, fine-grained level execution
+      resetResourceUsage();
+      n_wave_seq += n_wave;
+    } else if (n_blk_tail > 0) { // less than one wave, coarse-grained level execution
+      PyrResource res;
+      res.reg = n_blk_reg * (r_reg * sx * sy);
+      res.smem = n_blk_smem * r_smem;
+      res.thr = n_blk_thr * (sx * sy);
+      res.blk = n_blk;
+
+      if (hasResourceAvailable(res)) {  // resource is sufficient, same wave
+        n_p++;
+      } else {  // resource not sufficient, new wave
+        n_wave_par++;
+        S_p.push_back(n_p);
+        n_p = 0;
+        resetResourceUsage();
+      }
+      useResource(res);
+    }
+    imgSzX /= 2;
+    imgSzY /= 2;
+  }
+
+  imgSzX = baseImgs.front()->getSizeX(); // assume same-sized base images
+  imgSzY = baseImgs.front()->getSizeY();
+  for (size_t d=0; d<depth; ++d) {  // expand
+    unsigned numWaves = getNumWaves(K_e, imgSzX, imgSzY);
+    n_wave_expand += numWaves;
+    imgSzX /= 2;
+    imgSzY /= 2;
+  }
+
+  multiStream_str += "    n_wave_seq " + std::to_string(n_wave_seq) + "\n";
+  multiStream_str += "    n_wave_par " + std::to_string(n_wave_par) + "\n";
+  multiStream_str += "    n_wave_expand " + std::to_string(n_wave_expand) + "\n";
+  llvm::errs() << multiStream_str;
 }
 
 
