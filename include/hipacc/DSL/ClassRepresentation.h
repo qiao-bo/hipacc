@@ -44,6 +44,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <numeric>
 
 namespace clang {
 namespace hipacc {

@@ -684,29 +684,6 @@ void HipaccPyramidPipeline::printStreamPipelineInfo() {
   deviceInfo_str += "  num_sm: " + std::to_string(num_sms) + "\n";
   llvm::errs() << deviceInfo_str;
 
-  unsigned imgSzX = baseImgs.front()->getSizeX(); // assume same-sized base images
-  unsigned imgSzY = baseImgs.front()->getSizeY();
-
-  // single stream info
-  singleStream_str += "  -single-steam wave estimation\n";
-  for (size_t d=0; d<depth; ++d) {
-    for (auto kp : KernelMap) {
-      unsigned numWaves = getNumWaves(kp.first, imgSzX, imgSzY);
-      singleStream_str += "    level " + std::to_string(d) + " " + getPyramidOperationStr(kp.second);
-      singleStream_str += " kernel " + kp.first->getName() + " (";
-      singleStream_str += std::to_string(kp.first->getNumThreadsX()) + "x" + std::to_string(kp.first->getNumThreadsY());
-      singleStream_str += ") takes " + std::to_string(numWaves) + " waves\n";
-    }
-    imgSzX /= 2;
-    imgSzY /= 2;
-  }
-  llvm::errs() << singleStream_str;
-
-  // multi stream info
-  imgSzX = baseImgs.front()->getSizeX(); // assume same-sized base images
-  imgSzY = baseImgs.front()->getSizeY();
-  multiStream_str += "  -multi-steam wave estimation\n";
-
   HipaccKernel *K_r, *K_f, *K_e; // Unpack kernels
   for (auto kp : KernelMap) {
     if (kp.second == PyramidOperation::REDUCE) { K_r = kp.first; }
@@ -717,12 +694,54 @@ void HipaccPyramidPipeline::printStreamPipelineInfo() {
   assert(K_f && "no filter kernel for multi stream pyramid execution");
   assert(K_e && "no expand kernel for multi stream pyramid execution");
 
+  unsigned imgSzX = baseImgs.front()->getSizeX(); // assume same-sized base images
+  unsigned imgSzY = baseImgs.front()->getSizeY();
+
+  // single stream analysis
+  singleStream_str += "  -single-stream wave estimation\n";
+  std::vector<unsigned> numWavesDS;
+  std::vector<unsigned> numWavesLP;
+  std::vector<unsigned> numWavesUS;
+
+  for (size_t d=0; d<depth; ++d) {
+    if (d > 0) {
+      // Downsampling
+      numWavesDS.push_back(getNumWaves(K_r, imgSzX, imgSzY));
+    }
+    if (d < depth - 1) {
+      // level processing
+      numWavesLP.push_back(getNumWaves(K_f, imgSzX, imgSzY));
+      // Upsampling
+      numWavesUS.push_back(getNumWaves(K_e, imgSzX, imgSzY));
+    }
+    imgSzX /= 2; imgSzY /= 2;
+  }
+
+  assert((numWavesDS.size() == depth-1) && "number of waves in reduce does not match depth\n");
+  assert((numWavesLP.size() == depth-1) && "number of waves in filter does not match depth\n");
+  assert((numWavesUS.size() == depth-1) && "number of waves in expand does not match depth\n");
+
+  unsigned numWavesDSSum = std::accumulate(numWavesDS.begin(), numWavesDS.end(), 0);
+  unsigned numWavesLPSum = std::accumulate(numWavesLP.begin(), numWavesLP.end(), 0);
+  unsigned numWavesUSSum = std::accumulate(numWavesUS.begin(), numWavesUS.end(), 0);
+
+  singleStream_str += "    Reduce kernel " + K_r->getName() + " takes " + std::to_string(numWavesDSSum) + " waves\n";
+  singleStream_str += "    Filter kernel " + K_f->getName() + " takes " + std::to_string(numWavesLPSum) + " waves\n";
+  singleStream_str += "    Expand kernel " + K_e->getName() + " takes " + std::to_string(numWavesUSSum) + " waves\n";
+  llvm::errs() << singleStream_str;
+
+  // multi stream info
+  imgSzX = baseImgs.front()->getSizeX(); // assume same-sized base images
+  imgSzY = baseImgs.front()->getSizeY();
+  multiStream_str += "  -multi-stream wave estimation\n";
+
   unsigned n_wave_seq = 0;
   unsigned n_wave_par = 0;
   unsigned n_p = 0;
   std::vector<unsigned> S_p;
   unsigned n_wave_expand = 0;
 
+  // downsampling
   for (size_t d=0; d<depth; ++d) {  // reduce + filter, mainly filter
     unsigned sx = K_f->getNumThreadsX();
     unsigned sy = K_f->getNumThreadsY();
@@ -767,6 +786,7 @@ void HipaccPyramidPipeline::printStreamPipelineInfo() {
     imgSzY /= 2;
   }
 
+  // upsampling
   imgSzX = baseImgs.front()->getSizeX(); // assume same-sized base images
   imgSzY = baseImgs.front()->getSizeY();
   for (size_t d=0; d<depth; ++d) {  // expand
