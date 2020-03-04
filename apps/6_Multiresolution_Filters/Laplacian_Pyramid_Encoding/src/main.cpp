@@ -31,8 +31,8 @@
 
 #define SIZE_X 3
 #define SIZE_Y 3
-#define WIDTH 512
-#define HEIGHT 512
+#define WIDTH 1024
+#define HEIGHT 1024
 
 using namespace hipacc;
 using namespace hipacc::math;
@@ -160,7 +160,7 @@ int main(int argc, const char **argv) {
     Image<char> lap(width, height);
     Mask<float> mask(coef);
 
-    const int depth = 8;
+    const int depth = 10;
     Pyramid<char> pgaus(gaus, depth);
     Pyramid<char> plap(lap, depth);
 

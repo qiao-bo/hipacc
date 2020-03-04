@@ -799,7 +799,15 @@ void HipaccPyramidPipeline::printStreamPipelineInfo() {
   multiStream_str += "      Reduce kernel " + K_r->getName() + " takes " + std::to_string(n_wave_seq_r + 1) + " waves\n";
   multiStream_str += "      Filter kernel " + K_f->getName() + " takes " + std::to_string(n_wave_seq_f) + " waves\n";
   multiStream_str += "    Coarse-grained level execution:\n";
-  multiStream_str += "      takes " + std::to_string(S_p.size() + 1) + " waves and " + std::to_string(n_p) + " parallel waves\n";
+  if (S_p.size()) {
+    multiStream_str += "      takes " + std::to_string(S_p.size() + 1) + " waves and ";
+    for (auto np : S_p) {
+      multiStream_str += std::to_string(np) + " ";
+    }
+    multiStream_str += std::to_string(n_p) + " parallel streams\n";
+  } else {
+    multiStream_str += "      takes 1 wave and " + std::to_string(n_p) + " parallel streams\n";
+  }
   multiStream_str += "    Expand execution: takes " + std::to_string(n_wave_expand) + " waves\n";
   llvm::errs() << multiStream_str;
 }
