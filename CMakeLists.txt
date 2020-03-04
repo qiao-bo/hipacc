@@ -184,3 +184,8 @@ endif()
 if(EXISTS ${CMAKE_SOURCE_DIR}/samples/CMakeLists.txt)
     add_subdirectory(samples)
 endif()
+
+# add apps if available
+if(EXISTS ${CMAKE_SOURCE_DIR}/apps/CMakeLists.txt)
+    add_subdirectory(apps)
+endif()
