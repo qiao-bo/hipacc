@@ -735,14 +735,14 @@ void HipaccPyramidPipeline::printStreamPipelineInfo() {
   imgSzY = baseImgs.front()->getSizeY();
   multiStream_str += "  -multi-stream wave estimation\n";
 
-  unsigned n_wave_seq = 0;
-  unsigned n_wave_par = 0;
+  unsigned n_wave_seq_r = 0;
+  unsigned n_wave_seq_f = 0;
+  unsigned n_wave_expand = 0;
   unsigned n_p = 0;
   std::vector<unsigned> S_p;
-  unsigned n_wave_expand = 0;
 
   // downsampling
-  for (size_t d=0; d<depth; ++d) {  // reduce + filter, mainly filter
+  for (size_t d=0; d<depth-1; ++d) {  // reduce + filter, mainly filter
     unsigned sx = K_f->getNumThreadsX();
     unsigned sy = K_f->getNumThreadsY();
     unsigned r_reg = std::max(K_f->getResourceUsageReg(), (unsigned)1);
@@ -755,27 +755,26 @@ void HipaccPyramidPipeline::printStreamPipelineInfo() {
 
     unsigned n_wave = std::ceil((float)k_blk / (n_blk * num_sms));
     unsigned n_blk_tail = k_blk % (n_blk * num_sms);
-
-    multiStream_str += "    depth " + std::to_string(d) + ": filter kernel uses ";
-    multiStream_str += std::to_string(n_wave) + " waves and " + std::to_string(n_blk_tail) + " blocks in the tail\n";
+    unsigned n_blk_tail_per_sm = std::ceil((float)n_blk_tail / num_sms);
 
     if (n_wave > 1) {  // more than one wave, fine-grained level execution
       resetResourceUsage();
-      n_wave_seq += n_wave;
+      n_wave_seq_f += n_wave;
+      n_wave_seq_r += getNumWaves(K_r, imgSzX / 2, imgSzY / 2);
     } else if (n_blk_tail == 0) { // exactly one wave, fine-grained level execution
       resetResourceUsage();
-      n_wave_seq += n_wave;
+      n_wave_seq_f += n_wave;
+      n_wave_seq_r += getNumWaves(K_r, imgSzX / 2, imgSzY / 2);
     } else if (n_blk_tail > 0) { // less than one wave, coarse-grained level execution
       PyrResource res;
-      res.reg = n_blk_reg * (r_reg * sx * sy);
-      res.smem = n_blk_smem * r_smem;
-      res.thr = n_blk_thr * (sx * sy);
-      res.blk = n_blk;
+      res.reg = n_blk_tail_per_sm * (r_reg * sx * sy);
+      res.smem = n_blk_tail_per_sm * r_smem;
+      res.thr = n_blk_tail_per_sm * (sx * sy);
+      res.blk = n_blk_tail_per_sm;
 
       if (hasResourceAvailable(res)) {  // resource is sufficient, same wave
         n_p++;
       } else {  // resource not sufficient, new wave
-        n_wave_par++;
         S_p.push_back(n_p);
         n_p = 0;
         resetResourceUsage();
@@ -789,16 +788,19 @@ void HipaccPyramidPipeline::printStreamPipelineInfo() {
   // upsampling
   imgSzX = baseImgs.front()->getSizeX(); // assume same-sized base images
   imgSzY = baseImgs.front()->getSizeY();
-  for (size_t d=0; d<depth; ++d) {  // expand
+  for (size_t d=0; d<depth-1; ++d) {  // expand
     unsigned numWaves = getNumWaves(K_e, imgSzX, imgSzY);
     n_wave_expand += numWaves;
     imgSzX /= 2;
     imgSzY /= 2;
   }
 
-  multiStream_str += "    n_wave_seq " + std::to_string(n_wave_seq) + "\n";
-  multiStream_str += "    n_wave_par " + std::to_string(n_wave_par) + "\n";
-  multiStream_str += "    n_wave_expand " + std::to_string(n_wave_expand) + "\n";
+  multiStream_str += "    Fine-grained level execution:\n";
+  multiStream_str += "      Reduce kernel " + K_r->getName() + " takes " + std::to_string(n_wave_seq_r + 1) + " waves\n";
+  multiStream_str += "      Filter kernel " + K_f->getName() + " takes " + std::to_string(n_wave_seq_f) + " waves\n";
+  multiStream_str += "    Coarse-grained level execution:\n";
+  multiStream_str += "      takes " + std::to_string(S_p.size() + 1) + " waves and " + std::to_string(n_p) + " parallel waves\n";
+  multiStream_str += "    Expand execution: takes " + std::to_string(n_wave_expand) + " waves\n";
   llvm::errs() << multiStream_str;
 }
 
