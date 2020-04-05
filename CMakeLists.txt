@@ -55,6 +55,7 @@ find_program(clang       NAMES clang       PATHS ${LLVM_TOOLS_BINARY_DIR})
 find_package(CUDA)
 find_package(NVML)
 find_package(OpenCL)
+find_package(FFTW)
 
 if(CUDA_FOUND AND CUDA_VERSION VERSION_LESS "7.0")
     message(WARNING "At least CUDA version 7.0 required, but found CUDA version ${CUDA_VERSION}.")
@@ -86,6 +87,7 @@ message(STATUS "CUDA support: ${CUDA_FOUND}")
 message(STATUS "OpenCL support: ${OpenCL_FOUND}")
 message(STATUS "Polly support: ${USE_POLLY}")
 message(STATUS "JIT estimates: ${USE_JIT_ESTIMATE}")
+message(STATUS "FFTW support: ${FFTW_FOUND}")
 message(STATUS "===")
 
 
