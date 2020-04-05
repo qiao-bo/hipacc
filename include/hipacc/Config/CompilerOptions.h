@@ -84,6 +84,7 @@ class CompilerOptions {
     CompilerOption local_memory;
     CompilerOption multiple_pixels;
     CompilerOption vectorize_kernels;
+    CompilerOption use_fft;
     CompilerOption async_kernels;
     // user defined values for target code features
     int kernel_config_x, kernel_config_y;
@@ -128,6 +129,7 @@ class CompilerOptions {
       local_memory(AUTO),
       multiple_pixels(AUTO),
       vectorize_kernels(OFF),
+      use_fft(OFF),
       async_kernels(OFF),
       kernel_config_x(128),
       kernel_config_y(1),
@@ -214,6 +216,12 @@ class CompilerOptions {
     void setTimeKernels(CompilerOption o) { time_kernels = o; }
     void setLocalMemory(CompilerOption o) { local_memory = o; }
     void setVectorizeKernels(CompilerOption o) { vectorize_kernels = o; }
+
+    void setUseFFT(CompilerOption o) { use_fft = o; }
+    bool getUseFFT(CompilerOption option=option_ou) {
+      return use_fft & option;
+    }
+
     void setStreamAsyncKernelLaunch(int stream) {
       assert((stream > 0) && "Number of streams must be larger than 0");
       num_streams = stream;
@@ -318,6 +326,8 @@ class CompilerOptions {
       getOptionAsString(multiple_pixels, pixels_per_thread);
       llvm::errs() << "\n  Vectorization of kernels: ";
       getOptionAsString(vectorize_kernels);
+      llvm::errs() << "\n  Usage of FFT: ";
+      getOptionAsString(use_fft);
       llvm::errs() << "\n\n";
     }
 };

@@ -102,11 +102,13 @@ void printUsage() {
     << "  -o <file>               Write output to <file>\n"
     << "  --help                  Display available options\n"
     << "  --version               Display version information\n"
-    << "  -use-stream <n>         Async kernel launch with streams\n";
+    << "  -use-stream <n>         Async kernel launch with streams\n"
+    << "  -use-fft <o>            Enable/disable usage of convolution with fft for CPU and CUDA targets\n"
+    << "                          Valid values: 'on' and 'off'\n";
 }
 
 
-void printVersion() {
+void printVersion(){
   llvm::errs() << "hipacc version " << HIPACC_VERSION
     << " (" << GIT_REPOSITORY " " << GIT_VERSION << ")\n";
 }
@@ -304,6 +306,20 @@ int main(int argc, char *argv[]) {
         compilerOptions.setVectorizeKernels(USER_ON);
       } else {
         llvm::errs() << "ERROR: Expected valid vectorization specification for -use-vectorize switch.\n\n";
+        printUsage();
+        return EXIT_FAILURE;
+      }
+      ++i;
+      continue;
+    }
+    if (StringRef(argv[i]) == "-use-fft") {
+      assert(i<(argc-1) && "Mandatory specification for -use-fft switch missing.");
+      if (StringRef(argv[i+1]) == "off") {
+        compilerOptions.setUseFFT(USER_OFF);
+      } else if (StringRef(argv[i+1]) == "on") {
+        compilerOptions.setUseFFT(USER_ON);
+      } else {
+        llvm::errs() << "ERROR: Expected valid specification for -use-fft switch.\n\n";
         printUsage();
         return EXIT_FAILURE;
       }
