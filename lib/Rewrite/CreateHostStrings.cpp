@@ -41,9 +41,15 @@ using namespace hipacc;
 void CreateHostStrings::writeHeaders(std::string &resultStr) {
   switch (options.getTargetLang()) {
     case Language::C99:
-      resultStr += "#include \"hipacc_cpu_standalone.hpp\"\n\n"; break;
+      resultStr += "#include \"hipacc_cpu_standalone.hpp\"\n\n";
+      if (options.getUseFFT())
+        resultStr += "#include \"hipacc_cpu_fftw.hpp\"\n\n";
+      break;
     case Language::CUDA:
-      resultStr += "#include \"hipacc_cu_standalone.hpp\"\n\n";  break;
+      resultStr += "#include \"hipacc_cu_standalone.hpp\"\n\n";
+      if (options.getUseFFT())
+        resultStr += "#include \"hipacc_cu_cufft.hpp\"\n\n";
+      break;
     case Language::OpenCLACC:
     case Language::OpenCLCPU:
     case Language::OpenCLGPU:
