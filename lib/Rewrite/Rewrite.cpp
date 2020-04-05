@@ -1901,6 +1901,23 @@ bool Rewrite::VisitCallExpr (CallExpr *E) {
           pyramidPipe->enablePipelineKernelLaunch();
         }
       }
+
+      if (compilerOptions.getUseFFT()) {
+        if (DRE->getDecl()->getNameAsString() == "convolve_fft") {
+          SourceRange range(E->getBeginLoc(),
+                            E->getBeginLoc().getLocWithOffset(
+                                std::string("convolve_fft").length() - 1));
+
+          switch (compilerOptions.getTargetLang()) {
+          case Language::C99:
+            TextRewriter.ReplaceText(range, "fftwConvolution");
+            break;
+          case Language::CUDA:
+            TextRewriter.ReplaceText(range, "cufftConvolution");
+            break;
+          }
+        }
+      }
     }
   }
   return true;
