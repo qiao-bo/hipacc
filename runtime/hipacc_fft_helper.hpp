@@ -84,30 +84,6 @@ void calcBox(float *kernel, int W) {
   }
 }
 
-// from HIPAcc
-// Gaussian blur filter reference
-void gaussian_filter(uchar *in, uchar *out, float *filter, int size_x, int size_y,
-                     int width, int height) {
-  int anchor_x = size_x >> 1;
-  int anchor_y = size_y >> 1;
-  int upper_x = width - anchor_x;
-  int upper_y = height - anchor_y;
-
-  for (int y = anchor_y; y < upper_y; ++y) {
-    for (int x = anchor_x; x < upper_x; ++x) {
-      float sum = 0.5f;
-
-      for (int yf = -anchor_y; yf <= anchor_y; ++yf) {
-        for (int xf = -anchor_x; xf <= anchor_x; ++xf) {
-          sum += filter[(yf + anchor_y) * size_x + xf + anchor_x] *
-                 in[(y + yf) * width + x + xf];
-        }
-      }
-      out[y * width + x] = (uchar)(sum);
-    }
-  }
-}
-
 void putKernel(float *kernel, double *dest, int kx, int ky, int nx, int ny) {
   // centered
   /*for (int y = -ky/2; y <= ky/2; y++) {
