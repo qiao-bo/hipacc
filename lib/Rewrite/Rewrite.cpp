@@ -1915,6 +1915,10 @@ bool Rewrite::VisitCallExpr (CallExpr *E) {
           case Language::CUDA:
             TextRewriter.ReplaceText(range, "cufftConvolution");
             break;
+          default:
+            assert(false &&
+                   "Convolution with FFT is only supported for C99 and CUDA");
+            break;
           }
         }
       }
