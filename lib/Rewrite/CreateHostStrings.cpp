@@ -410,6 +410,50 @@ void CreateHostStrings::writeMemoryTransferDomainFromMask(
 
 
 void CreateHostStrings::writeKernelCall(HipaccKernel *K, std::string &resultStr, HipaccPyramidPipeline *pyrPipe) {
+  if (options.getUseFFT() && (options.getTargetLang() == Language::C99 ||
+                              options.getTargetLang() == Language::CUDA)) {
+    switch (options.getTargetLang()) {
+    case Language::C99:
+      resultStr += "fftwConvolution(";
+      break;
+    case Language::CUDA:
+      resultStr += "cufftConvolution(";
+      break;
+    default:
+      assert(false && "Convolution with FFT is only supported for C99 and CUDA");
+      return;
+    }
+    // get Iterationspace
+    std::string iterName = K->getIterationSpace()->getName();
+    // get Accessor
+    HipaccAccessor *Acc;
+    std::string accName;
+    for (auto img : K->getKernelClass()->getImgFields()) {
+      Acc = K->getImgFromMapping(img);
+      accName = Acc->getName();
+      if (accName != iterName)
+        break;
+    }
+    // get Mask
+    HipaccMask *Mask;
+    std::string mskName;
+    for (auto msk : K->getKernelClass()->getMaskFields()) {
+      Mask = K->getMaskFromMapping(msk);
+      mskName = Mask->getName();
+    }
+    // put function arguments
+    resultStr += "(" + Acc->getImage()->getTypeStr() + " *)(" + Acc->getName() +
+                 ".img->mem)";
+    // resultStr += ", " + K->getIterationSpace()->getImage()->getSizeXStr() + ",
+    // " + K->getIterationSpace()->getImage()->getSizeYStr();
+    resultStr += ", " + K->getIterationSpace()->getName() + ".width, " +
+                 K->getIterationSpace()->getName() + ".height";
+    resultStr += ", " + Mask->getHostMemName() + ", " + Mask->getSizeXStr() +
+                 ", " + Mask->getSizeYStr();
+    resultStr += ", (" + K->getIterationSpace()->getImage()->getTypeStr() +
+                 " *)(" + K->getIterationSpace()->getName() + ".img->mem));";
+    return;
+  }
   auto argTypeNames = K->getArgTypeNames();
   auto deviceArgNames = K->getDeviceArgNames();
   auto hostArgNames = K->getHostArgNames();
