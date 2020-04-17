@@ -3,7 +3,9 @@
 
 #include "hipacc_fft_helper.hpp"
 
+#include <assert.h>
 #include <iostream>
+#include <type_traits>
 
 void fftConvolve(double *in, int width, int height,
                  float *k, int k_w, int k_h, double *out) {
@@ -116,7 +118,41 @@ void fftConvolvePadded(double *in, int width, int height,
   fftw_free(out_pad);
 }
 
-void fftwConvolution(double *in, int width, int height,
-                     float *kernel, int k_w, int k_h, double *out) {
-  fftConvolve(in, width, height, kernel, k_w, k_h, out);
+template <class T, class U, size_t rows, size_t cols>
+void fftwConvolution(T *in, int width, int height,
+                     const float (&kernel)[rows][cols], int k_w, int k_h,
+                     U *out) {
+  assert(rows == k_h && cols == k_w);
+  // prepare input buffer
+  double *input;
+  if (std::is_same<double, T>::value) {
+    input = reinterpret_cast<double *>(in);
+  } else {
+    // convert to double
+    input = new double[width * height];
+    for (int i = 0; i < width * height; i++) {
+      input[i] = (double)in[i];
+    }
+  }
+  // prepare output buffer
+  double *output;
+  if (std::is_same<double, U>::value) {
+    output = reinterpret_cast<double *>(out);
+  } else {
+    output = new double[width * height];
+  }
+  // prepare mask
+  float *mask = new float[k_w * k_h];
+  for (size_t r = 0; r < rows; r++) {
+    for (size_t c = 0; c < cols; c++) {
+      mask[r * cols + c] = kernel[r][c];
+    }
+  }
+  fftConvolve(input, width, height, mask, k_w, k_h, output);
+  if (!std::is_same<double, U>::value) {
+    // convert output
+    for (int i = 0; i < width * height; i++) {
+      out[i] = (U)output[i];
+    }
+  }
 }
