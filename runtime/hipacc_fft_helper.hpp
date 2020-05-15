@@ -84,7 +84,8 @@ void calcBox(float *kernel, int W) {
   }
 }
 
-void putKernel(float *kernel, double *dest, int kx, int ky, int nx, int ny) {
+template <class T, class U>
+void putKernel(T *kernel, U *dest, int kx, int ky, int nx, int ny) {
   // centered
   /*for (int y = -ky/2; y <= ky/2; y++) {
       for (int x = -kx/2; x <= kx/2; x++) {
@@ -102,8 +103,9 @@ void putKernel(float *kernel, double *dest, int kx, int ky, int nx, int ny) {
   // dest[0] = 1.0;
 }
 
-void putKernelComplex(float *kernel, std::complex<double> *dest, int kx, int ky,
-                      int nx, int ny) {
+template <class T, class U>
+void putKernelComplex(T *kernel, std::complex<U> *dest, int kx, int ky, int nx,
+                      int ny) {
   // edges wrap-around
   for (int y = -ky / 2; y <= ky / 2; y++) {
     for (int x = -kx / 2; x <= kx / 2; x++) {
@@ -149,4 +151,14 @@ template <typename T> void shiftFFT(T *image, int width, int height) {
     memcpy(&image[linearize(width, 0, hh + y)], temp, size_n);
   }
   free(temp);
+}
+
+template <class T> int paddedWidth(int width, int alignment) {
+  alignment /= sizeof(T);
+  int res = width;
+  int rest = res % alignment;
+  if (rest != 0) {
+    res += alignment - (rest);
+  }
+  return res;
 }
