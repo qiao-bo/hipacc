@@ -41,10 +41,6 @@
 #include "pyramid.hpp"
 
 namespace hipacc {
-
-void convolve_fft(double *in, int width, int height, float *kernel, int k_w,
-                  int k_h, double *out);
-
 class HipaccEoP{};
 } // end namespace hipacc
 
