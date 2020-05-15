@@ -35,32 +35,57 @@
 #define HEIGHT 3024
 #define IMAGE "../../common/img/fuerte_ship.jpg"
 
+#define TYPE float
+
 using namespace hipacc;
 using namespace hipacc::math;
 
 // Gaussian blur filter in Hipacc
-class GaussianBlur : public Kernel<uchar> {
+class GaussianBlur : public Kernel<TYPE> {
 private:
-  Accessor<uchar> &input;
+  Accessor<TYPE> &input;
   Mask<float> &mask;
 
 public:
-  GaussianBlur(IterationSpace<uchar> &iter, Accessor<uchar> &input,
+  GaussianBlur(IterationSpace<TYPE> &iter, Accessor<TYPE> &input,
                Mask<float> &mask)
       : Kernel(iter), input(input), mask(mask) {
     add_accessor(&input);
   }
 
   void kernel() {
-    output() = (uchar)(convolve(mask, Reduce::SUM,
-                                [&]() -> float { return mask() * input(mask); }) +
-                       0.5f);
+    output() = (TYPE)(convolve(mask, Reduce::SUM,
+                               [&]() -> float { return mask() * input(mask); }) +
+                      0.0f);
   }
 };
 
 // forward declaration of reference implementation
-void gaussian_filter(uchar *in, uchar *out, float *filter, int size_x, int size_y,
+template <typename T>
+void gaussian_filter(T *in, T *out, float *filter, int size_x, int size_y,
                      int width, int height);
+
+// alternative compare to analyse precision and errors
+template <typename T>
+void compare(const T *cmp1, const T *cmp2, const unsigned int width,
+             const unsigned int height, const unsigned int border_x = 0,
+             const unsigned int border_y = 0) {
+  int count = 0;
+  double max = 0.0;
+  double sum = 0.0;
+  for (int i = border_y; i < height - border_y; i++) {
+    for (int j = border_x; j < width - border_x; j++) {
+      double diff = (double)std::abs(cmp1[i * width + j] - cmp2[i * width + j]);
+      if (diff > 0.0) {
+        count++;
+        sum += diff;
+        max = std::max(diff, max);
+      }
+    }
+  }
+  double avg = sum / ((width - border_x * 2) * (height - border_y * 2));
+  std::cout << "diffs:" << count << " avg:" << avg << " max:" << max << std::endl;
+}
 
 /*************************************************************************
  * Main function                                                         *
@@ -107,31 +132,40 @@ int main(int argc, const char **argv) {
   };
 
   // host memory for image of width x height pixels
-  uchar *input = load_data<uchar>(width, height, 1, IMAGE);
-  uchar *ref_out = new uchar[width * height];
+  TYPE *input = load_data<TYPE>(width, height, 1, IMAGE);
+  TYPE *ref_out = new TYPE[width * height];
 
   std::cout << "Calculating Hipacc Gaussian filter ..." << std::endl;
 
   //************************************************************************//
 
   // input and output image of width x height pixels
-  Image<uchar> in(width, height, input);
-  Image<uchar> out(width, height);
+  Image<TYPE> in(width, height, input);
+  Image<TYPE> out(width, height);
 
   // define Mask for Gaussian filter
   Mask<float> mask(coef);
 
-  BoundaryCondition<uchar> bound(in, mask, Boundary::CLAMP);
-  Accessor<uchar> acc(bound);
+  BoundaryCondition<TYPE> bound(in, mask, Boundary::REPEAT);
+  Accessor<TYPE> acc(bound);
 
-  IterationSpace<uchar> iter(out);
+  IterationSpace<TYPE> iter(out);
   GaussianBlur filter(iter, acc, mask);
 
+  Image<TYPE> outFFT(width, height);
+  IterationSpace<TYPE> iterFFT(outFFT);
+  GaussianBlur filterFFT(iterFFT, acc, mask);
+
   filter.execute();
+
+  //filterFFT.convolveFFT(); // double precision
+  filterFFT.convolveFFT_f(); // single precision
+
   timing = hipacc_last_kernel_timing();
 
   // get pointer to result data
-  uchar *output = out.data();
+  TYPE *output = out.data();
+  TYPE *outputFFT = outFFT.data();
 
   //************************************************************************//
 
@@ -146,7 +180,10 @@ int main(int argc, const char **argv) {
             << (width * height / (end - start)) / 1000 << " Mpixel/s"
             << std::endl;
 
-  compare_results(output, ref_out, width, height, offset_x, offset_y);
+  // compare hipacc to reference
+  compare(output, ref_out, width, height, offset_x, offset_y);
+  // compare hipacc to fft convolution
+  compare(outputFFT, output, width, height, offset_x, offset_y);
 
   save_data(width, height, 1, input, "input.jpg");
   save_data(width, height, 1, output, "output.jpg");
@@ -160,7 +197,8 @@ int main(int argc, const char **argv) {
 }
 
 // Gaussian blur filter reference
-void gaussian_filter(uchar *in, uchar *out, float *filter, int size_x, int size_y,
+template <typename T>
+void gaussian_filter(T *in, T *out, float *filter, int size_x, int size_y,
                      int width, int height) {
   int anchor_x = size_x >> 1;
   int anchor_y = size_y >> 1;
@@ -169,7 +207,7 @@ void gaussian_filter(uchar *in, uchar *out, float *filter, int size_x, int size_
 
   for (int y = anchor_y; y < upper_y; ++y) {
     for (int x = anchor_x; x < upper_x; ++x) {
-      float sum = 0.5f;
+      float sum = 0.0f;
 
       for (int yf = -anchor_y; yf <= anchor_y; ++yf) {
         for (int xf = -anchor_x; xf <= anchor_x; ++xf) {
@@ -177,7 +215,7 @@ void gaussian_filter(uchar *in, uchar *out, float *filter, int size_x, int size_
                  in[(y + yf) * width + x + xf];
         }
       }
-      out[y * width + x] = (uchar)(sum);
+      out[y * width + x] = (T)(sum);
     }
   }
 }
