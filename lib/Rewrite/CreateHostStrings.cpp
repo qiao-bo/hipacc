@@ -408,16 +408,20 @@ void CreateHostStrings::writeMemoryTransferDomainFromMask(
   }
 }
 
-
-void CreateHostStrings::writeKernelCall(HipaccKernel *K, std::string &resultStr, HipaccPyramidPipeline *pyrPipe) {
+void CreateHostStrings::writeConvolutionCall(HipaccKernel *K,
+                                             std::string &resultStr, bool fast) {
   if (options.getUseFFT() && (options.getTargetLang() == Language::C99 ||
                               options.getTargetLang() == Language::CUDA)) {
+    std::string precision = "double";
+    if (fast) {
+      precision = "float";
+    }
     switch (options.getTargetLang()) {
     case Language::C99:
-      resultStr += "fftwConvolution(";
+      resultStr += "fftwConvolution<" + precision + ">(";
       break;
     case Language::CUDA:
-      resultStr += "cufftConvolution(";
+      resultStr += "cufftConvolution<" + precision + ">(";
       break;
     default:
       assert(false && "Convolution with FFT is only supported for C99 and CUDA");
@@ -451,9 +455,25 @@ void CreateHostStrings::writeKernelCall(HipaccKernel *K, std::string &resultStr,
     resultStr += ", " + Mask->getHostMemName() + ", " + Mask->getSizeXStr() +
                  ", " + Mask->getSizeYStr();
     resultStr += ", (" + K->getIterationSpace()->getImage()->getTypeStr() +
-                 " *)(" + K->getIterationSpace()->getName() + ".img->mem));";
+                 " *)(" + K->getIterationSpace()->getName() + ".img->mem)";
+    resultStr += ", " + std::to_string(device.alignment);
+    std::string boundary_linear;
+    if (Acc->getBoundaryMode() == Boundary::REPEAT) {
+      boundary_linear = "false"; // circular convolution
+    } else if (Acc->getBoundaryMode() == Boundary::CONSTANT) {
+      boundary_linear = "true"; // linear convolution
+    } else {
+      assert(false && "Only REPEAT and CONSTANT boundary modes supported");
+    }
+    resultStr += ", " + boundary_linear;
+    // resultStr += ", 0"; // boundary constant
+    resultStr += ");";
     return;
   }
+}
+
+void CreateHostStrings::writeKernelCall(HipaccKernel *K, std::string &resultStr,
+                                        HipaccPyramidPipeline *pyrPipe) {
   auto argTypeNames = K->getArgTypeNames();
   auto deviceArgNames = K->getDeviceArgNames();
   auto hostArgNames = K->getHostArgNames();
@@ -934,7 +954,6 @@ void CreateHostStrings::writeKernelCall(HipaccKernel *K, std::string &resultStr,
     resultStr += "\n" + indent;
   }
 }
-
 
 void CreateHostStrings::writeReduceCall(HipaccKernel *K, std::string &resultStr) {
   std::string typeStr(K->getIterationSpace()->getImage()->getTypeStr());
