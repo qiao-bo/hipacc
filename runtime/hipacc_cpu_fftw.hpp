@@ -7,10 +7,74 @@
 #include <iostream>
 #include <type_traits>
 
-void fftConvolve(double *in, int width, int height,
-                 float *k, int k_w, int k_h, double *out) {
-  fftw_init_threads();
-  fftw_plan_with_nthreads(4);
+template <class P> struct FFT {};
+// fftw wrapper functinos for single precision
+template <> struct FFT<float> {
+  template <typename... TArgs> static void *fft_malloc(TArgs... args) {
+    return fftwf_malloc(args...);
+  }
+  template <typename... TArgs>
+  static fftwf_plan fft_plan_dft_r2c_2d(TArgs... args) {
+    return fftwf_plan_dft_r2c_2d(args...);
+  }
+  template <typename... TArgs>
+  static fftwf_plan fft_plan_dft_c2r_2d(TArgs... args) {
+    return fftwf_plan_dft_c2r_2d(args...);
+  }
+  template <typename... TArgs> static void fft_execute(TArgs... args) {
+    fftwf_execute(args...);
+  }
+  template <typename... TArgs> static void fft_destroy_plan(TArgs... args) {
+    fftwf_destroy_plan(args...);
+  }
+  template <typename... TArgs> static void fft_free(TArgs... args) {
+    fftwf_free(args...);
+  }
+};
+// fftw wrapper functinos for double precision
+template <> struct FFT<double> {
+  template <typename... TArgs> static void *fft_malloc(TArgs... args) {
+    return fftw_malloc(args...);
+  }
+  template <typename... TArgs>
+  static fftw_plan fft_plan_dft_r2c_2d(TArgs... args) {
+    return fftw_plan_dft_r2c_2d(args...);
+  }
+  template <typename... TArgs>
+  static fftw_plan fft_plan_dft_c2r_2d(TArgs... args) {
+    return fftw_plan_dft_c2r_2d(args...);
+  }
+  template <typename... TArgs> static void fft_execute(TArgs... args) {
+    fftw_execute(args...);
+  }
+  template <typename... TArgs> static void fft_destroy_plan(TArgs... args) {
+    fftw_destroy_plan(args...);
+  }
+  template <typename... TArgs> static void fft_free(TArgs... args) {
+    fftw_free(args...);
+  }
+};
+
+template <class TPrecision, class V>
+void fftConvolve(TPrecision *in, int width, int height, V *k, int k_w, int k_h,
+                 TPrecision *out) {
+  typedef
+      typename std::conditional<std::is_same<TPrecision, float>::value,
+                                fftwf_complex, fftw_complex>::type fft_complex;
+  typedef typename std::conditional<std::is_same<TPrecision, float>::value,
+                                    fftwf_plan, fftw_plan>::type fft_plan;
+  bool floatPrecision = false;
+  if (std::is_same<TPrecision, float>::value) {
+    floatPrecision = true;
+  }
+
+  if (floatPrecision) {
+    fftwf_init_threads();
+    fftwf_plan_with_nthreads(4);
+  } else {
+    fftw_init_threads();
+    fftw_plan_with_nthreads(4);
+  }
 
   int image_width = width;
   int image_height = height;
@@ -18,22 +82,23 @@ void fftConvolve(double *in, int width, int height,
   int intermediateSize = image_height * (image_width / 2 + 1);
 
   // setup buffers
-  double *kernel = (double *)fftw_malloc(sizeof(double) * matsize);
-  fftw_complex *image_fft =
-      (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * intermediateSize);
-  fftw_complex *kernel_fft =
-      (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * intermediateSize);
+  TPrecision *kernel =
+      (TPrecision *)FFT<TPrecision>::fft_malloc(sizeof(TPrecision) * matsize);
+  fft_complex *image_fft = (fft_complex *)FFT<TPrecision>::fft_malloc(
+      sizeof(fft_complex) * intermediateSize);
+  fft_complex *kernel_fft = (fft_complex *)FFT<TPrecision>::fft_malloc(
+      sizeof(fft_complex) * intermediateSize);
 
-  memset(kernel, 0, sizeof(double) * matsize);
+  memset(kernel, 0, sizeof(TPrecision) * matsize);
 
   // prepare kernel
-  putKernel((float *)k, kernel, k_w, k_h, image_width, image_height);
+  putKernel(k, kernel, k_w, k_h, image_width, image_height);
 
   // std::cout << "plan: " << image_height << " " << image_width << std::endl;
   auto start = std::chrono::system_clock::now();
 
   // create plans
-  fftw_plan plan_image = fftw_plan_dft_r2c_2d(
+  fft_plan plan_image = FFT<TPrecision>::fft_plan_dft_r2c_2d(
       image_height, image_width, in, image_fft, FFTW_ESTIMATE);
 
   auto end = std::chrono::system_clock::now();
@@ -41,10 +106,10 @@ void fftConvolve(double *in, int width, int height,
       std::chrono::duration_cast<std::chrono::microseconds>(end - start);
   // std::cout << (float)elapsed.count()/1000.0 << " ms" << std::endl;
 
-  fftw_plan plan_kernel = fftw_plan_dft_r2c_2d(image_height, image_width, kernel,
-                                               kernel_fft, FFTW_ESTIMATE);
-  fftw_plan plan_inverse = fftw_plan_dft_c2r_2d(image_height, image_width,
-                                                image_fft, out, FFTW_ESTIMATE);
+  fft_plan plan_kernel = FFT<TPrecision>::fft_plan_dft_r2c_2d(
+      image_height, image_width, kernel, kernel_fft, FFTW_ESTIMATE);
+  fft_plan plan_inverse = FFT<TPrecision>::fft_plan_dft_c2r_2d(
+      image_height, image_width, image_fft, out, FFTW_ESTIMATE);
 
   // start
   auto start_time = std::chrono::system_clock::now();
@@ -52,20 +117,20 @@ void fftConvolve(double *in, int width, int height,
   //#pragma omp parallel sections
   {
     //#pragma omp section
-    { fftw_execute(plan_image); }
+    { FFT<TPrecision>::fft_execute(plan_image); }
     //#pragma omp section
-    { fftw_execute(plan_kernel); }
+    { FFT<TPrecision>::fft_execute(plan_kernel); }
   }
 
 // Pointwise Multiplication in Frequency Domain
 #pragma omp parallel for
   for (int ind = 0; ind < intermediateSize; ++ind) {
-    reinterpret_cast<std::complex<double> *>(image_fft)[ind] =
-        reinterpret_cast<std::complex<double> *>(image_fft)[ind] *
-        reinterpret_cast<std::complex<double> *>(kernel_fft)[ind];
+    reinterpret_cast<std::complex<TPrecision> *>(image_fft)[ind] =
+        reinterpret_cast<std::complex<TPrecision> *>(image_fft)[ind] *
+        reinterpret_cast<std::complex<TPrecision> *>(kernel_fft)[ind];
   }
 
-  fftw_execute(plan_inverse);
+  FFT<TPrecision>::fft_execute(plan_inverse);
 
 // scale
 #pragma omp parallel for
@@ -80,17 +145,52 @@ void fftConvolve(double *in, int width, int height,
   std::cout << (float)elapsed_time.count() / 1000.0 << " ms" << std::endl;
 
   // cleanup
-  fftw_destroy_plan(plan_image);
-  fftw_destroy_plan(plan_kernel);
-  fftw_destroy_plan(plan_inverse);
-  fftw_free(kernel);
-  fftw_free(image_fft);
-  fftw_free(kernel_fft);
+  FFT<TPrecision>::fft_destroy_plan(plan_image);
+  FFT<TPrecision>::fft_destroy_plan(plan_kernel);
+  FFT<TPrecision>::fft_destroy_plan(plan_inverse);
+  FFT<TPrecision>::fft_free(kernel);
+  FFT<TPrecision>::fft_free(image_fft);
+  FFT<TPrecision>::fft_free(kernel_fft);
+  if (floatPrecision) {
+    fftwf_cleanup_threads();
+  } else {
+    fftw_cleanup_threads();
+  }
 }
 
-void fftConvolvePadded(double *in, int width, int height,
-                       float *kernel, int k_w, int k_h,
-                       double *out, int padX, int padY) {
+template <class V>
+void fftConvolvePadded(float *in, int width, int height, V *kernel, int k_w,
+                       int k_h, float *out, int padX, int padY) {
+  int padWidth = width + padX;
+  int padHeight = height + padY;
+  int padMatsize = padWidth * padHeight;
+
+  float *in_pad = (float *)fftwf_malloc(sizeof(float) * padMatsize);
+  memset(in_pad, 0, sizeof(float) * padMatsize);
+
+  for (int y = 0; y < height; ++y) {
+    for (int x = 0; x < width; ++x) {
+      in_pad[linearize(padWidth, x, y)] = in[y * (width) + x];
+    }
+  }
+
+  float *out_pad = (float *)fftwf_malloc(sizeof(float) * padMatsize);
+
+  fftConvolve(in_pad, padWidth, padHeight, kernel, k_w, k_h, out_pad);
+
+  for (int y = 0; y < height; ++y) {
+    for (int x = 0; x < width; ++x) {
+      out[linearize(width, x, y)] = out_pad[y * (padWidth) + x];
+    }
+  }
+
+  fftwf_free(in_pad);
+  fftwf_free(out_pad);
+}
+
+template <class V>
+void fftConvolvePadded(double *in, int width, int height, V *kernel, int k_w,
+                       int k_h, double *out, int padX, int padY) {
   int padWidth = width + padX;
   int padHeight = height + padY;
   int padMatsize = padWidth * padHeight;
@@ -118,41 +218,27 @@ void fftConvolvePadded(double *in, int width, int height,
   fftw_free(out_pad);
 }
 
-template <class T, class U, size_t rows, size_t cols>
-void fftwConvolution(T *in, int width, int height,
-                     const float (&kernel)[rows][cols], int k_w, int k_h,
-                     U *out) {
+template <class TPrecision, class T, class U, class V, size_t rows, size_t cols>
+void fftwConvolution(T *in, int width, int height, const V (&kernel)[rows][cols],
+                     int k_w, int k_h, U *out, int alignment, bool linear) {
   assert(rows == k_h && cols == k_w);
+
+  int width_in = paddedWidth<T>(width, alignment);
+  int width_out = paddedWidth<U>(width, alignment);
+
   // prepare input buffer
-  double *input;
-  if (std::is_same<double, T>::value) {
-    input = reinterpret_cast<double *>(in);
-  } else {
-    // convert to double
-    input = new double[width * height];
-    for (int i = 0; i < width * height; i++) {
-      input[i] = (double)in[i];
+  TPrecision *input = new TPrecision[width * height];
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      input[y * width + x] = (TPrecision)in[y * width_in + x];
     }
   }
   // prepare output buffer
-  double *output;
-  if (std::is_same<double, U>::value) {
-    output = reinterpret_cast<double *>(out);
-  } else {
-    output = new double[width * height];
-  }
-  // prepare mask
-  float *mask = new float[k_w * k_h];
-  for (size_t r = 0; r < rows; r++) {
-    for (size_t c = 0; c < cols; c++) {
-      mask[r * cols + c] = kernel[r][c];
-    }
-  }
-  fftConvolve(input, width, height, mask, k_w, k_h, output);
-  if (!std::is_same<double, U>::value) {
-    // convert output
-    for (int i = 0; i < width * height; i++) {
-      out[i] = (U)output[i];
+  TPrecision *output = new TPrecision[width * height];
+  fftConvolve(input, width, height, (V *)(&kernel[0][0]), k_w, k_h, output);
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      out[y * width_out + x] = (U)output[y * width + x];
     }
   }
 }
