@@ -1784,6 +1784,30 @@ bool Rewrite::VisitCXXMemberCallExpr(CXXMemberCallExpr *E) {
         // rewrite kernel invocation
         replaceText(E->getBeginLoc(), E->getBeginLoc(), ';', newStr);
       }
+    } else if (!KernelDeclMap.empty() &&
+        E->getDirectCallee()->getNameAsString() == "convolveFFT"
+        || E->getDirectCallee()->getNameAsString() == "convolveFFT_f") {
+      // get the user Kernel class
+      if (KernelDeclMap.count(DRE->getDecl())) {
+        HipaccKernel *K = KernelDeclMap[DRE->getDecl()];
+        VarDecl *VD = K->getDecl();
+        std::string newStr;
+
+        // this was checked before, when the user class was parsed
+        CXXConstructExpr *CCE = dyn_cast<CXXConstructExpr>(VD->getInit());
+        assert(CCE->getNumArgs() == K->getKernelClass()->getMembers().size() &&
+            "number of arguments doesn't match!");
+
+        // set host argument names and retrieve literals stored to temporaries
+        K->setHostArgNames(llvm::makeArrayRef(CCE->getArgs(),
+              CCE->getNumArgs()), newStr, literalCount);
+
+        bool fast = E->getDirectCallee()->getNameAsString() == "convolveFFT_f";
+        stringCreator.writeConvolutionCall(K, newStr, fast);
+
+        // rewrite kernel invocation
+        replaceText(E->getBeginLoc(), E->getBeginLoc(), ';', newStr);
+      }
     }
   }
 
@@ -1899,27 +1923,6 @@ bool Rewrite::VisitCallExpr (CallExpr *E) {
 
         if (compilerOptions.emitCUDA() && compilerOptions.asyncKernelLaunch()) {
           pyramidPipe->enablePipelineKernelLaunch();
-        }
-      }
-
-      if (compilerOptions.getUseFFT()) {
-        if (DRE->getDecl()->getNameAsString() == "convolve_fft") {
-          SourceRange range(E->getBeginLoc(),
-                            E->getBeginLoc().getLocWithOffset(
-                                std::string("convolve_fft").length() - 1));
-
-          switch (compilerOptions.getTargetLang()) {
-          case Language::C99:
-            TextRewriter.ReplaceText(range, "fftwConvolution");
-            break;
-          case Language::CUDA:
-            TextRewriter.ReplaceText(range, "cufftConvolution");
-            break;
-          default:
-            assert(false &&
-                   "Convolution with FFT is only supported for C99 and CUDA");
-            break;
-          }
         }
       }
     }
