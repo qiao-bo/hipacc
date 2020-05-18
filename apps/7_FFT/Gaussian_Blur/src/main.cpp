@@ -98,6 +98,7 @@ int main(int argc, const char **argv) {
   const int offset_x = size_x >> 1;
   const int offset_y = size_y >> 1;
   float timing = 0;
+  float timingFFT = 0;
 
   // only filter kernel sizes 3x3, 5x5, and 7x7 implemented
   if (size_x != size_y || !(size_x == 3 || size_x == 5 || size_x == 7)) {
@@ -146,7 +147,7 @@ int main(int argc, const char **argv) {
   // define Mask for Gaussian filter
   Mask<float> mask(coef);
 
-  BoundaryCondition<TYPE> bound(in, mask, Boundary::REPEAT);
+  BoundaryCondition<TYPE> bound(in, mask, Boundary::CONSTANT, 0);
   Accessor<TYPE> acc(bound);
 
   IterationSpace<TYPE> iter(out);
@@ -157,11 +158,10 @@ int main(int argc, const char **argv) {
   GaussianBlur filterFFT(iterFFT, acc, mask);
 
   filter.execute();
-
-  //filterFFT.convolveFFT(); // double precision
-  filterFFT.convolveFFT_f(); // single precision
-
   timing = hipacc_last_kernel_timing();
+
+  filterFFT.convolveFFT();
+  timingFFT = hipacc_last_kernel_timing();
 
   // get pointer to result data
   TYPE *output = out.data();
@@ -171,6 +171,9 @@ int main(int argc, const char **argv) {
 
   std::cout << "Hipacc: " << timing << " ms, " << (width * height / timing) / 1000
             << " Mpixel/s" << std::endl;
+
+  std::cout << "Hipacc FFT: " << timingFFT << " ms, "
+            << (width * height / timingFFT) / 1000 << " Mpixel/s" << std::endl;
 
   std::cout << "Calculating reference ..." << std::endl;
   double start = time_ms();
@@ -183,10 +186,11 @@ int main(int argc, const char **argv) {
   // compare hipacc to reference
   compare(output, ref_out, width, height, offset_x, offset_y);
   // compare hipacc to fft convolution
-  compare(outputFFT, output, width, height, offset_x, offset_y);
+  compare(outputFFT, output, width, height /*, offset_x, offset_y*/);
 
   save_data(width, height, 1, input, "input.jpg");
   save_data(width, height, 1, output, "output.jpg");
+  save_data(width, height, 1, outputFFT, "outputFFT.jpg");
   show_data(width, height, 1, output, "output.jpg");
 
   // free memory
