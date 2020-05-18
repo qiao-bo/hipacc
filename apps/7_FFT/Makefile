@@ -42,7 +42,7 @@ CXX_INCLUDE   = -I ../../common \
 #CXX_LINK      = -lhipaccRuntime
 
 CXX_LIB_DIR	  = -L $(FFTW_PATH)/lib
-CXX_LINK	  = -lfftw3_omp -lfftw3 -lm
+CXX_LINK	  = -lfftw3_omp -lfftw3 -lfftw3f_omp -lfftw3f -lm
 CXX_LINK_EXCL = -fopenmp
 
 OCL_INCLUDE   = $(CXX_INCLUDE)
@@ -124,7 +124,7 @@ endif
 
 # Run Hipacc
 main_%.cc: src/main.cpp
-	$(HIPACC) $(HIPACC_FLAGS) -use-fft on $(call HIPACC_OPTS,$*) $(HIPACC_INCLUDE) $(CURDIR)/$< -o $@
+	$(HIPACC) $(HIPACC_FLAGS) -use-fft fast $(call HIPACC_OPTS,$*) $(HIPACC_INCLUDE) $(CURDIR)/$< -o $@
 
 # Build DSL
 main_dsl: src/main.cpp

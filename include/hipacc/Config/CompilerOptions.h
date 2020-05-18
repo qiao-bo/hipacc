@@ -50,11 +50,12 @@ namespace hipacc {
 
 // compiler option possibilities
 enum CompilerOption {
-  AUTO                = 0x1,
-  ON                  = 0x2,
-  OFF                 = 0x4,
-  USER_ON             = 0x8,
-  USER_OFF            = 0x10
+  AUTO = 0x1,
+  ON = 0x2,
+  OFF = 0x4,
+  USER_ON = 0x8,
+  USER_OFF = 0x10,
+  FAST = 0x20
 };
 
 // target language specification
@@ -106,6 +107,9 @@ class CompilerOptions {
           break;
         case AUTO:
           llvm::errs() << "AUTO - determined by the framework";
+          break;
+        case FAST:
+          llvm::errs() << "ENABLED - FAST";
           break;
         case ON:
           llvm::errs() << "ENABLED";
@@ -161,6 +165,7 @@ class CompilerOptions {
 
     static const auto option_ou  = static_cast<CompilerOption>(     ON|USER_ON);
     static const auto option_aou = static_cast<CompilerOption>(AUTO|ON|USER_ON);
+    static const auto option_of = static_cast<CompilerOption>(ON | FAST);
 
     bool exploreConfig(CompilerOption option=option_ou) {
       return explore_config & option;
@@ -218,9 +223,7 @@ class CompilerOptions {
     void setVectorizeKernels(CompilerOption o) { vectorize_kernels = o; }
 
     void setUseFFT(CompilerOption o) { use_fft = o; }
-    bool getUseFFT(CompilerOption option=option_ou) {
-      return use_fft & option;
-    }
+    bool getUseFFT(CompilerOption option = option_of) { return use_fft & option; }
 
     void setStreamAsyncKernelLaunch(int stream) {
       assert((stream > 0) && "Number of streams must be larger than 0");
