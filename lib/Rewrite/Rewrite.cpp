@@ -1785,8 +1785,7 @@ bool Rewrite::VisitCXXMemberCallExpr(CXXMemberCallExpr *E) {
         replaceText(E->getBeginLoc(), E->getBeginLoc(), ';', newStr);
       }
     } else if (!KernelDeclMap.empty() &&
-        E->getDirectCallee()->getNameAsString() == "convolveFFT"
-        || E->getDirectCallee()->getNameAsString() == "convolveFFT_f") {
+               E->getDirectCallee()->getNameAsString() == "convolveFFT") {
       // get the user Kernel class
       if (KernelDeclMap.count(DRE->getDecl())) {
         HipaccKernel *K = KernelDeclMap[DRE->getDecl()];
@@ -1802,8 +1801,8 @@ bool Rewrite::VisitCXXMemberCallExpr(CXXMemberCallExpr *E) {
         K->setHostArgNames(llvm::makeArrayRef(CCE->getArgs(),
               CCE->getNumArgs()), newStr, literalCount);
 
-        bool fast = E->getDirectCallee()->getNameAsString() == "convolveFFT_f";
-        stringCreator.writeConvolutionCall(K, newStr, fast);
+        bool fast = compilerOptions.getUseFFT(FAST);
+        stringCreator.writeConvolutionCall(K, newStr, fast, Context);
 
         // rewrite kernel invocation
         replaceText(E->getBeginLoc(), E->getBeginLoc(), ';', newStr);

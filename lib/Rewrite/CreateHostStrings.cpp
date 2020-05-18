@@ -409,7 +409,7 @@ void CreateHostStrings::writeMemoryTransferDomainFromMask(
 }
 
 void CreateHostStrings::writeConvolutionCall(HipaccKernel *K,
-                                             std::string &resultStr, bool fast) {
+                                             std::string &resultStr, bool fast, ASTContext &Context) {
   if (options.getUseFFT() && (options.getTargetLang() == Language::C99 ||
                               options.getTargetLang() == Language::CUDA)) {
     std::string precision = "double";
@@ -466,9 +466,16 @@ void CreateHostStrings::writeConvolutionCall(HipaccKernel *K,
       assert(false && "Only REPEAT and CONSTANT boundary modes supported");
     }
     resultStr += ", " + boundary_linear;
-    // resultStr += ", 0"; // boundary constant
-    resultStr += ");";
-    return;
+    if (Acc->getBoundaryMode() == Boundary::CONSTANT) {
+      std::string constVal = "0";
+      clang::Expr::EvalResult Result;
+      if (Acc->getConstExpr()->EvaluateAsRValue(Result, Context)) {
+        constVal = Result.Val.getAsString(Context, K->getKernelClass()->getPixelType());
+      }
+      resultStr += ", " + constVal; // boundary constant
+    }
+    
+    resultStr += ");\n";
   }
 }
 
