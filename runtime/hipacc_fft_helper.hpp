@@ -153,7 +153,7 @@ template <typename T> void shiftFFT(T *image, int width, int height) {
   free(temp);
 }
 
-template <class T> int paddedWidth(int width, int alignment) {
+template <class T> int alignedWidth(int width, int alignment) {
   alignment /= sizeof(T);
   int res = width;
   int rest = res % alignment;

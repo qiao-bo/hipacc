@@ -218,27 +218,43 @@ void fftConvolvePadded(double *in, int width, int height, V *kernel, int k_w,
   fftw_free(out_pad);
 }
 
-template <class TPrecision, class T, class U, class V, size_t rows, size_t cols>
+template <class TPrecision, class T, class U, class V, size_t rows, size_t cols,
+          class B = int>
 void fftwConvolution(T *in, int width, int height, const V (&kernel)[rows][cols],
-                     int k_w, int k_h, U *out, int alignment, bool linear) {
+                     int k_w, int k_h, U *out, int alignment, bool linear,
+                     B boundaryConstant = 0) {
   assert(rows == k_h && cols == k_w);
 
-  int width_in = paddedWidth<T>(width, alignment);
-  int width_out = paddedWidth<U>(width, alignment);
+  int width_in = alignedWidth<T>(width, alignment);
+  int width_out = alignedWidth<U>(width, alignment);
+
+  int padWidth = width;
+  int padHeight = height;
+  if (linear) {
+    padWidth = width + k_w / 2;
+    padHeight = height + k_h / 2;
+  }
+  int padSize = padWidth * padHeight;
 
   // prepare input buffer
-  TPrecision *input = new TPrecision[width * height];
+  TPrecision *input = new TPrecision[padSize];
+  if (linear) {
+    std::fill_n(input, padSize, (TPrecision)boundaryConstant);
+  }
   for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
-      input[y * width + x] = (TPrecision)in[y * width_in + x];
+      input[y * padWidth + x] = (TPrecision)in[y * width_in + x];
     }
   }
   // prepare output buffer
-  TPrecision *output = new TPrecision[width * height];
-  fftConvolve(input, width, height, (V *)(&kernel[0][0]), k_w, k_h, output);
+  TPrecision *output = new TPrecision[padSize];
+  fftConvolve(input, padWidth, padHeight, (V *)(&kernel[0][0]), k_w, k_h, output);
   for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
-      out[y * width_out + x] = (U)output[y * width + x];
+      out[y * width_out + x] = (U)output[y * padWidth + x];
     }
   }
+
+  free(input);
+  free(output);
 }

@@ -92,14 +92,13 @@ void fftConvolve(TPrecision *in, int width, int height, V *k, int k_w, int k_h,
   int image_height = height;
 
   int matsize = image_width * image_height;
-  int matsize2 = image_height * image_width;
   int intermediateHeight = image_height / 2 + 1;
   int intermediateSize = image_width * intermediateHeight;
 
   // setup buffers
-  TPrecision *kernel = (TPrecision *)malloc(sizeof(TPrecision) * matsize2);
+  TPrecision *kernel = (TPrecision *)malloc(sizeof(TPrecision) * matsize);
 
-  memset(kernel, 0, sizeof(TPrecision) * matsize2);
+  memset(kernel, 0, sizeof(TPrecision) * matsize);
 
   // prepare kernel
   putKernel(k, kernel, k_w, k_h, image_width, image_height);
@@ -107,20 +106,20 @@ void fftConvolve(TPrecision *in, int width, int height, V *k, int k_w, int k_h,
   // Allocate device memory
   TPrecision *d_in, *d_kernel, *d_out;
   cufft_Complex *d_image_fft, *d_kernel_fft;
-  cudaMalloc(reinterpret_cast<void **>(&d_in), sizeof(TPrecision) * matsize2);
-  cudaMalloc(reinterpret_cast<void **>(&d_kernel), sizeof(TPrecision) * matsize2);
+  cudaMalloc(reinterpret_cast<void **>(&d_in), sizeof(TPrecision) * matsize);
+  cudaMalloc(reinterpret_cast<void **>(&d_kernel), sizeof(TPrecision) * matsize);
   cudaMalloc(reinterpret_cast<void **>(&d_image_fft),
              sizeof(cufft_Complex) * intermediateSize);
   cudaMalloc(reinterpret_cast<void **>(&d_kernel_fft),
              sizeof(cufft_Complex) * intermediateSize);
-  cudaMalloc(reinterpret_cast<void **>(&d_out), sizeof(TPrecision) * matsize2);
+  cudaMalloc(reinterpret_cast<void **>(&d_out), sizeof(TPrecision) * matsize);
   // Copy host memory to device
   cudaMemcpy(d_in, in, sizeof(TPrecision) * matsize, cudaMemcpyHostToDevice);
   cudaMemcpy(d_kernel, kernel, sizeof(TPrecision) * matsize,
              cudaMemcpyHostToDevice);
 
   // create plans
-  cufftHandle plan_forward_many, plan_reverse_many, plan_forward_kernel;
+  cufftHandle plan_forward_many, plan_reverse_many;
   int n[2] = {image_height, image_width};
   if (floatPrecision) {
     cufftPlanMany(&plan_forward_many, 2, n, nullptr, 1, 1, nullptr, 1, 1,
@@ -195,33 +194,51 @@ void fftConvolve(TPrecision *in, int width, int height, V *k, int k_w, int k_h,
   cudaFree(d_out);
 }
 
-template <class TPrecision, class T, class U, class V, size_t rows, size_t cols>
+template <class TPrecision, class T, class U, class V, size_t rows, size_t cols,
+          class B = int>
 void cufftConvolution(T *in, int width, int height, const V (&kernel)[rows][cols],
-                      int k_w, int k_h, U *out, int alignment, bool linear) {
+                      int k_w, int k_h, U *out, int alignment, bool linear,
+                      B boundaryConstant = 0) {
   assert(rows == k_h && cols == k_w);
 
-  int width_in = paddedWidth<T>(width, alignment);
-  int width_out = paddedWidth<U>(width, alignment);
+  int width_in = alignedWidth<T>(width, alignment);
+  int width_out = alignedWidth<U>(width, alignment);
+
+  int padWidth = width;
+  int padHeight = height;
+  if (linear) {
+    padWidth = width + k_w / 2;
+    padHeight = height + k_h / 2;
+  }
+  int padSize = padWidth * padHeight;
 
   // prepare input buffer
-  TPrecision *input = new TPrecision[width * height];
+  TPrecision *input = new TPrecision[padSize];
+  if (linear) {
+    std::fill_n(input, padSize, (TPrecision)boundaryConstant);
+  }
   T *input_d = new T[width_in * height];
   // convert input
   cudaMemcpy(input_d, in, sizeof(T) * width_in * height, cudaMemcpyDeviceToHost);
   for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
-      input[y * width + x] = (TPrecision)input_d[y * width_in + x];
+      input[y * padWidth + x] = (TPrecision)input_d[y * width_in + x];
     }
   }
   // prepare output buffer
-  TPrecision *output = new TPrecision[width * height];
-  fftConvolve(input, width, height, (V *)(&kernel[0][0]), k_w, k_h, output);
+  TPrecision *output = new TPrecision[padSize];
+  fftConvolve(input, padWidth, padHeight, (V *)(&kernel[0][0]), k_w, k_h, output);
   // convert output
   U *out_d = new U[width_out * height];
   for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
-      out_d[y * width_out + x] = (U)output[y * width + x];
+      out_d[y * width_out + x] = (U)output[y * padWidth + x];
     }
   }
   cudaMemcpy(out, out_d, sizeof(U) * width_out * height, cudaMemcpyHostToDevice);
+
+  free(input);
+  free(input_d);
+  free(output);
+  free(out_d);
 }
