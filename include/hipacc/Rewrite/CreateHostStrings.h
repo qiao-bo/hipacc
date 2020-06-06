@@ -88,8 +88,8 @@ class CreateHostStrings {
         MemoryTransferDirection direction, std::string &resultStr);
     void writeMemoryTransferDomainFromMask(HipaccMask *Domain,
         HipaccMask *Mask, std::string &resultStr);
-    void writeConvolutionCall(HipaccKernel *K, std::string &resultStr, bool fast,
-                              ASTContext &Context);
+    void writeFFTConvolutionCall(HipaccKernel *K, std::string &resultStr,
+                                 ASTContext &Context, bool fast = true);
     void writeKernelCall(HipaccKernel *K, std::string &resultStr, HipaccPyramidPipeline *pyrPipe=nullptr);
     void writeReduceCall(HipaccKernel *K, std::string &resultStr);
     void writeBinningCall(HipaccKernel *K, std::string &resultStr);

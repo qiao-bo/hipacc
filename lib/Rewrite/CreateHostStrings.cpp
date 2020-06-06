@@ -408,8 +408,9 @@ void CreateHostStrings::writeMemoryTransferDomainFromMask(
   }
 }
 
-void CreateHostStrings::writeConvolutionCall(HipaccKernel *K,
-                                             std::string &resultStr, bool fast, ASTContext &Context) {
+void CreateHostStrings::writeFFTConvolutionCall(HipaccKernel *K,
+                                                std::string &resultStr,
+                                                ASTContext &Context, bool fast) {
   if (options.getUseFFT() && (options.getTargetLang() == Language::C99 ||
                               options.getTargetLang() == Language::CUDA)) {
     std::string precision = "double";
@@ -444,6 +445,9 @@ void CreateHostStrings::writeConvolutionCall(HipaccKernel *K,
     for (auto msk : K->getKernelClass()->getMaskFields()) {
       Mask = K->getMaskFromMapping(msk);
       mskName = Mask->getName();
+      if (Mask->getHostMemName().empty()) {
+        assert(false && "FFT Convolution without mask not supported");
+      }
     }
     // put function arguments
     resultStr += "(" + Acc->getImage()->getTypeStr() + " *)(" + Acc->getName() +

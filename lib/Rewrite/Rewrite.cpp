@@ -1802,7 +1802,7 @@ bool Rewrite::VisitCXXMemberCallExpr(CXXMemberCallExpr *E) {
               CCE->getNumArgs()), newStr, literalCount);
 
         bool fast = compilerOptions.getUseFFT(FAST);
-        stringCreator.writeConvolutionCall(K, newStr, fast, Context);
+        stringCreator.writeFFTConvolutionCall(K, newStr, Context, fast);
 
         // rewrite kernel invocation
         replaceText(E->getBeginLoc(), E->getBeginLoc(), ';', newStr);
