@@ -1,60 +1,8 @@
 // This is a helper file for both hipacc_cpu_fftw.hpp and hipacc_cu_cufft.hpp
 
-// DEBUG
-#include <opencv2/core.hpp>
-#include <opencv2/core/core.hpp>
+#include <cmath>
+#include <complex>
 #include <string>
-
-#include <sys/time.h>
-struct timeval t0, t1;
-void start() { gettimeofday(&t0, NULL); }
-double stop() {
-  gettimeofday(&t1, NULL);
-  long long time = (t1.tv_sec - t0.tv_sec) * 1000000LL + t1.tv_usec - t0.tv_usec;
-  printf("time: %.3f ms\n", (double)time / 1000);
-  return (double)time / 1000;
-}
-
-// get mat type as string
-std::string type2str(int type) {
-  std::string r;
-
-  uchar depth = type & CV_MAT_DEPTH_MASK;
-  uchar chans = 1 + (type >> CV_CN_SHIFT);
-
-  switch (depth) {
-  case CV_8U:
-    r = "8U";
-    break;
-  case CV_8S:
-    r = "8S";
-    break;
-  case CV_16U:
-    r = "16U";
-    break;
-  case CV_16S:
-    r = "16S";
-    break;
-  case CV_32S:
-    r = "32S";
-    break;
-  case CV_32F:
-    r = "32F";
-    break;
-  case CV_64F:
-    r = "64F";
-    break;
-  default:
-    r = "User";
-    break;
-  }
-
-  r += "C";
-  r += (chans + '0');
-
-  return r;
-}
-// END DEBUG
 
 // https://stackoverflow.com/questions/8204645/implementing-gaussian-blur-how-to-calculate-convolution-matrix-kernel#8204880
 void calcGauss(float *kernel, int W) {
@@ -116,43 +64,38 @@ void putKernelComplex(T *kernel, std::complex<U> *dest, int kx, int ky, int nx,
   }
 }
 
-void calcMagnitude(std::complex<double> *in, uchar *out, int N) {
-  float *magnitude = (float *)malloc(sizeof(float) * N);
-  for (int i = 0; i < N; ++i) {
-    magnitude[i] = std::abs(in[i]);
+// only unshifted
+template <class T, class U>
+void calcMagnitude(std::complex<T> *in, U *out, int width, int height) {
+  // in is result of fft (r2c: only left half (width/2+1)*height)
+  int width_in = width / 2 + 1;
+  int N = width * height;
+  float *magnitude = (float *)malloc(sizeof(float) * width * height);
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width_in; x++) {
+      magnitude[y * width + x] = std::abs(in[y * width_in + x]);
+      if (x < width / 2)
+        magnitude[width * height - (y * width + x) - 1] =
+            std::abs(in[y * width_in + x + 1]); // point mirror
+    }
   }
   float max = 0.0;
-  for (int i = 0; i < N; ++i) {
-    if (magnitude[i] > max)
-      max = magnitude[i];
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width_in; x++) {
+      if (magnitude[y * width + x] > max)
+        max = magnitude[y * width + x];
+    }
   }
   for (int i = 0; i < N; ++i) {
-    out[i] = (uchar)(255.0 * pow(magnitude[i] * (1.0 / max), 1.0 / 4.0));
+    out[i] = (U)(255.0 * pow(magnitude[i] * (1.0 / max), 1.0 / 4.0));
   }
+  free(magnitude);
 }
 
+// 2d access to 1d array
 inline int linearize(int w, int x, int y) { return y * w + x; }
 
-template <typename T> void shiftFFT(T *image, int width, int height) {
-  int hw = width / 2;
-  int hh = height / 2;
-  int size_n = sizeof(T) * hw;
-  T *temp = (T *)malloc(size_n);
-  for (int y = 0; y < hh; y++) {
-    memcpy(temp, &image[linearize(width, 0, y)], size_n);
-    memcpy(&image[linearize(width, 0, y)], &image[linearize(width, hw, hh + y)],
-           size_n);
-    memcpy(&image[linearize(width, hw, hh + y)], temp, size_n);
-  }
-  for (int y = 0; y < hh; y++) {
-    memcpy(temp, &image[linearize(width, hw, y)], size_n);
-    memcpy(&image[linearize(width, hw, y)], &image[linearize(width, 0, hh + y)],
-           size_n);
-    memcpy(&image[linearize(width, 0, hh + y)], temp, size_n);
-  }
-  free(temp);
-}
-
+// get next width that is aligned to a size of alignment of type T
 template <class T> int alignedWidth(int width, int alignment) {
   alignment /= sizeof(T);
   int res = width;
@@ -161,4 +104,155 @@ template <class T> int alignedWidth(int width, int alignment) {
     res += alignment - (rest);
   }
   return res;
+}
+
+// get int greater or equal val that is divisible by div
+int nextDiv(int val, int div) {
+  int newVal = val;
+  int rest = newVal % div;
+  if (rest != 0) {
+    newVal += div - (rest);
+  }
+  return newVal;
+}
+
+// https://stackoverflow.com/questions/466204/rounding-up-to-next-power-of-2
+unsigned long upperPowerOfTwo(unsigned long v) {
+  v--;
+  v |= v >> 1;
+  v |= v >> 2;
+  v |= v >> 4;
+  v |= v >> 8;
+  v |= v >> 16;
+  v++;
+  return v;
+}
+
+// https://stackoverflow.com/questions/4424374/determining-if-a-number-is-prime
+bool isPrime(int number) {
+  if (number < 2)
+    return false;
+  if (number == 2)
+    return true;
+  if (number % 2 == 0)
+    return false;
+  for (int i = 3; (i * i) <= number; i += 2) {
+    if (number % i == 0)
+      return false;
+  }
+  return true;
+}
+
+// shift the zero-frequency component to the center of the image
+template <class T>
+void shiftFFT(T *image, int width, int height, int alignment = 0) {
+  int width_align = width;
+  if (alignment) {
+    width_align = alignedWidth<T>(width, alignment);
+  }
+  T *tmp = new T[width_align * height];
+
+  int y_inc = height / 2;
+  int x_inc = width / 2;
+  int cpy_len_l = sizeof(T) * (width / 2);
+  int cpy_len_r = sizeof(T) * (width / 2);
+  if (width % 2) {
+    cpy_len_l += 1;
+  }
+  int src_x_l = 0;
+  int src_x_r = width / 2;
+  if (width % 2) {
+    src_x_r += 1;
+  }
+
+  for (int y = 0; y < height; y++) {
+    memcpy(&tmp[linearize(width_align, (src_x_l + x_inc) % width,
+                          (y + y_inc) % height)],
+           &image[linearize(width_align, src_x_l, y)], cpy_len_l);
+    memcpy(&tmp[linearize(width_align, (src_x_r + x_inc) % width,
+                          (y + y_inc) % height)],
+           &image[linearize(width_align, src_x_r, y)], cpy_len_r);
+  }
+
+  memcpy(image, tmp, sizeof(T) * width_align * height);
+  free(tmp);
+}
+
+// inverse shift the zero-frequency
+template <class T>
+void iShiftFFT(T *image, int width, int height, int alignment = 0) {
+  int width_align = width;
+  if (alignment) {
+    width_align = alignedWidth<T>(width, alignment);
+  }
+  T *tmp = new T[width_align * height];
+
+  int y_inc = height / 2;
+  int x_inc = width / 2;
+  if (width % 2) {
+    y_inc += 1;
+    x_inc += 1;
+  }
+  int cpy_len_l = sizeof(T) * (width / 2);
+  int cpy_len_r = sizeof(T) * (width / 2);
+  if (width % 2) {
+    cpy_len_r += 1;
+  }
+  int src_x_l = 0;
+  int src_x_r = width / 2;
+
+  for (int y = 0; y < height; y++) {
+    memcpy(&tmp[linearize(width_align, (src_x_l + x_inc) % width,
+                          (y + y_inc) % height)],
+           &image[linearize(width_align, src_x_l, y)], cpy_len_l);
+    memcpy(&tmp[linearize(width_align, (src_x_r + x_inc) % width,
+                          (y + y_inc) % height)],
+           &image[linearize(width_align, src_x_r, y)], cpy_len_r);
+  }
+
+  memcpy(image, tmp, sizeof(T) * width_align * height);
+  free(tmp);
+}
+
+// hann window of size N for cos weighted gradient
+float hannWindow(float N, float x) {
+  if (x > N)
+    return 1;
+  N *= 2;
+  return 0.5 * (1.0 - cos(2.0 * M_PI * x / N));
+}
+
+// reset mask values for low frequencies below r with gradient blur of size w
+template <class T>
+void magResetLowFreq(T *image, int width, int height, int alignment, float r,
+                     float w) {
+  int width_align = alignedWidth<T>(width, alignment);
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      int xd = x - width / 2;
+      int yd = y - height / 2;
+      float d = sqrt(xd * xd + yd * yd);
+      if (d < r) {
+        image[y * width_align + x] =
+            255 - (255 - image[y * width_align + x]) * (1 - hannWindow(w, r - d));
+      }
+    }
+  }
+}
+
+// low pass filter for low frequencies below r with gradient blur of size w
+template <class T>
+void magLowPassFilter(T *image, int width, int height, int alignment, int r,
+                      int w) {
+  int width_align = alignedWidth<T>(width, alignment);
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      int xd = x - width / 2;
+      int yd = y - height / 2;
+      float d = sqrt(xd * xd + yd * yd);
+      if (d > r) {
+        image[y * width_align + x] *= (1 - hannWindow(w, d - r));
+      }
+    }
+  }
 }
