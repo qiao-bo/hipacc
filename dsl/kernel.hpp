@@ -227,13 +227,10 @@ class Kernel {
         template <typename Function>
         void iterate(Domain &domain, const Function &fun);
         void convolveFFT();
-        void convolveFFT_f();
 };
 
 template <typename data_t, typename bin_t>
 void Kernel<data_t, bin_t>::convolveFFT() {}
-template <typename data_t, typename bin_t>
-void Kernel<data_t, bin_t>::convolveFFT_f() {}
 
 template <typename data_t, typename bin_t> template <typename data_m, typename Function>
 auto Kernel<data_t, bin_t>::convolve(Mask<data_m> &mask, Reduce mode, const Function& fun) -> decltype(fun()) {
