@@ -184,6 +184,45 @@ void fftConvolve(TPrecision *in, int width, int height, V *k, int k_w, int k_h,
   FFT<TPrecision>::fft_cleanup_threads();
 }
 
+bool estimateConvolutionExecutionTime(int width, int height, int padWidth,
+                                      int padHeight, int k_w, int k_h,
+                                      bool linear) {
+  // assumed 4 GFLOPS per core
+  const double FLOPMS = 4000000; // FLOP per MS
+  const double THREADS = 4;
+
+  double N1 = padWidth;
+  double N2 = padHeight;
+  // for power of 2
+  // double N1cost = 2*N1 * log2(N1) /*additions*/ + 4*N1 * log2(N1)
+  // /*multiplications*/; double N2cost = 2*N2 * log2(N2) /*additions*/ + 4*N2 *
+  // log2(N2) /*multiplications*/; double singleFFTcost1 = N1 * N2cost + N2 *
+  // N1cost; double singleFFTcost2 = 6.0*N1*N2*log2(N1*N2)
+  // + 2.0*N1*N2*log2(N1*N2); // 6 for complex mul and 2 for complex add
+
+  double singleFFTcost = 7.0 * N1 * N2 * log2(N1 * N2);
+
+  // double FFTConvolutionCost1 = (singleFFTcost1 * 3 + (N1*N2*(3+1))) / THREADS;
+  // double FFTConvolutionCost2 = (singleFFTcost2 * 3 + (N1*N2*(3+1))) / THREADS;
+
+  double FFTConvolutionCost = (singleFFTcost * 3 + (N1 * N2 * (3 + 1))) / THREADS;
+  std::cout << "FFTConvolutionCost: " << FFTConvolutionCost / FLOPMS << std::endl;
+
+  double flopPerPixelInHipaccKernel = 4; // depends on border condition
+  double simpleHipaccCost =
+      (height * width) * (k_w * k_h) * (2 + flopPerPixelInHipaccKernel);
+  double parallelHipaccCost = simpleHipaccCost / THREADS;
+  std::cout << "simpleHipaccCost: " << simpleHipaccCost / FLOPMS << std::endl;
+
+  if (FFTConvolutionCost < simpleHipaccCost) {
+    std::cout << "FFT Convolution will be faster" << std::endl;
+    return true;
+  } else {
+    std::cout << "Hipacc Kernel will be faster" << std::endl;
+    return false;
+  }
+}
+
 template <class TPrecision, class T, class U, class V, size_t rows, size_t cols,
           class B = int>
 void fftwConvolution(T *in, int width, int height, const V (&kernel)[rows][cols],
@@ -205,6 +244,9 @@ void fftwConvolution(T *in, int width, int height, const V (&kernel)[rows][cols]
     padHeight = nextDiv(padHeight, 8);
   }
   int padSize = padWidth * padHeight;
+
+  estimateConvolutionExecutionTime(width, height, padWidth, padHeight, k_w, k_h,
+                                   linear);
 
   // prepare input buffer
   TPrecision *input = new TPrecision[padSize];

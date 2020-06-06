@@ -239,6 +239,34 @@ void fftConvolve(TPrecision *in, int width, int height, V *k, int k_w, int k_h,
   cudaFree(d_out);
 }
 
+bool estimateConvolutionExecutionTime(int width, int height, int padWidth,
+                                      int padHeight, int k_w, int k_h,
+                                      bool linear) {
+  // assumed:
+  // 2496 CUDA cores
+  // 3.52 TFLOPS single, 1.17 TFLOPS double
+  const double FLOPMS = 3500000000; // FLOP per MS
+
+  double N1 = padWidth;
+  double N2 = padHeight;
+
+  double singleFFTcost = 8.0 * N1 * N2 * log2(N1 * N2);
+
+  double FFTConvolutionCost = (singleFFTcost * 3 + (N1 * N2 * (3 + 1))) * 80;
+  std::cout << "FFTConvolutionCost: " << FFTConvolutionCost / FLOPMS << std::endl;
+
+  double simpleHipaccCost = (height * width) * (k_w * k_h) * 2 * 22;
+  std::cout << "simpleHipaccCost: " << simpleHipaccCost / FLOPMS << std::endl;
+
+  if (FFTConvolutionCost < simpleHipaccCost) {
+    std::cout << "FFT Convolution will be faster" << std::endl;
+    return true;
+  } else {
+    std::cout << "Hipacc Kernel will be faster" << std::endl;
+    return false;
+  }
+}
+
 template <class TPrecision, class T, class U, class V, size_t rows, size_t cols,
           class B = int>
 void cufftConvolution(T *in, int width, int height, const V (&kernel)[rows][cols],
@@ -256,6 +284,9 @@ void cufftConvolution(T *in, int width, int height, const V (&kernel)[rows][cols
     padHeight = height + k_h / 2;
   }
   int padSize = padWidth * padHeight;
+
+  estimateConvolutionExecutionTime(width, height, padWidth, padHeight, k_w, k_h,
+                                   linear);
 
   // prepare input buffer
   TPrecision *input = new TPrecision[padSize];
