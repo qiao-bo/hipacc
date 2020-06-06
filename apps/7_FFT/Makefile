@@ -26,7 +26,6 @@ HIPACC_PATH := $(shell dirname $(HIPACC))/..
 ifdef NVCC
 CUDA_PATH   := $(shell dirname $(NVCC))/..
 endif
-FFTW_PATH := $(shell dirname $(FFTW))/..
 
 ################################################################################
 
@@ -34,14 +33,12 @@ FFTW_PATH := $(shell dirname $(FFTW))/..
 OS           := $(shell uname)
 CXX_FLAGS     = -std=c++11 -O2
 CXX_INCLUDE   = -I ../../common \
-                -I $(HIPACC_PATH)/include \
-				-I $(FFTW_PATH)/include
+                -I $(HIPACC_PATH)/include
 
 # standalone runtime disabled by default
 #CXX_LIB_DIR   = -L $(HIPACC_PATH)/lib
 #CXX_LINK      = -lhipaccRuntime
 
-CXX_LIB_DIR	  = -L $(FFTW_PATH)/lib
 CXX_LINK	  = -lfftw3_omp -lfftw3 -lfftw3f_omp -lfftw3f -lm
 CXX_LINK_EXCL = -fopenmp
 
