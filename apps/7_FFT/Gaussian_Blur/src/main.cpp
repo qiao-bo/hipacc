@@ -31,11 +31,16 @@
 
 #define SIZE_X 7
 #define SIZE_Y 7
+
 #define WIDTH 4032
 #define HEIGHT 3024
 #define IMAGE "../../common/img/fuerte_ship.jpg"
-
-#define TYPE float
+/*
+#define WIDTH 700
+#define HEIGHT 445
+#define IMAGE "../../common/img/halftone-printing-process.jpg"
+*/
+#define TYPE uchar
 
 using namespace hipacc;
 using namespace hipacc::math;
@@ -84,7 +89,8 @@ void compare(const T *cmp1, const T *cmp2, const unsigned int width,
     }
   }
   double avg = sum / ((width - border_x * 2) * (height - border_y * 2));
-  std::cout << "diffs:" << count << " avg:" << avg << " max:" << max << std::endl;
+  std::cout << "different pixels:" << count << " avg error:" << avg
+            << " max error:" << max << std::endl;
 }
 
 /*************************************************************************
@@ -98,7 +104,6 @@ int main(int argc, const char **argv) {
   const int offset_x = size_x >> 1;
   const int offset_y = size_y >> 1;
   float timing = 0;
-  float timingFFT = 0;
 
   // only filter kernel sizes 3x3, 5x5, and 7x7 implemented
   if (size_x != size_y || !(size_x == 3 || size_x == 5 || size_x == 7)) {
@@ -161,7 +166,6 @@ int main(int argc, const char **argv) {
   timing = hipacc_last_kernel_timing();
 
   filterFFT.convolveFFT();
-  timingFFT = hipacc_last_kernel_timing();
 
   // get pointer to result data
   TYPE *output = out.data();
@@ -171,9 +175,6 @@ int main(int argc, const char **argv) {
 
   std::cout << "Hipacc: " << timing << " ms, " << (width * height / timing) / 1000
             << " Mpixel/s" << std::endl;
-
-  std::cout << "Hipacc FFT: " << timingFFT << " ms, "
-            << (width * height / timingFFT) / 1000 << " Mpixel/s" << std::endl;
 
   std::cout << "Calculating reference ..." << std::endl;
   double start = time_ms();
