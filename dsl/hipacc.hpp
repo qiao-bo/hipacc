@@ -41,6 +41,28 @@
 #include "pyramid.hpp"
 
 namespace hipacc {
+
+template <class data_t, class TPrecision, class T> TPrecision *fft(Image<T> &in) {
+  static_assert(std::is_same<T, data_t>::value,
+                "Type of Image and Memory have to be the same!");
+  return nullptr;
+};
+template <class data_t, class TPrecision, class T>
+void ifft(TPrecision *in, Image<T> &out) {
+  static_assert(std::is_same<T, data_t>::value,
+                "Type of Image and Memory have to be the same!");
+};
+template <class data_t, class TPrecision, class T>
+void fftToMag(TPrecision *in, Image<T> &mag) {
+  static_assert(std::is_same<T, data_t>::value,
+                "Type of Image and Memory have to be the same!");
+};
+template <class data_t, class TPrecision, class T>
+void magScaleFFT(TPrecision *in, Image<T> &mag, float r) {
+  static_assert(std::is_same<T, data_t>::value,
+                "Type of Image and Memory have to be the same!");
+};
+
 class HipaccEoP{};
 } // end namespace hipacc
 
