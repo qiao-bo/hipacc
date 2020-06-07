@@ -208,7 +208,12 @@ bool estimateConvolutionExecutionTime(int width, int height, int padWidth,
   double FFTConvolutionCost = (singleFFTcost * 3 + (N1 * N2 * (3 + 1))) / THREADS;
   std::cout << "FFTConvolutionCost: " << FFTConvolutionCost / FLOPMS << std::endl;
 
-  double flopPerPixelInHipaccKernel = 4; // depends on border condition
+  double flopPerPixelInHipaccKernel; // depends on border condition
+  if (linear) {
+    flopPerPixelInHipaccKernel = 4;
+  } else {
+    flopPerPixelInHipaccKernel = 12;
+  }
   double simpleHipaccCost =
       (height * width) * (k_w * k_h) * (2 + flopPerPixelInHipaccKernel);
   double parallelHipaccCost = simpleHipaccCost / THREADS;
