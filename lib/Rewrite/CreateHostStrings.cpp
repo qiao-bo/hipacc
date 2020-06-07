@@ -480,6 +480,14 @@ void CreateHostStrings::writeFFTConvolutionCall(HipaccKernel *K,
     }
     
     resultStr += ");\n";
+  } else {
+    if (options.getUseFFT()) {
+      assert(false && "Convolution with FFT is only supported for C99 and CUDA");
+      return;
+    } else {
+      assert(false && "Convolution with FFT can not be used without -use-fft switch");
+      return;
+    }
   }
 }
 
