@@ -592,6 +592,47 @@ void fftToMag(TPrecision *in, HipaccImage &mag) {
   free(out);
 }
 
+// create magnitude from dct
+template <class T, class TPrecision>
+void dctToMag(TPrecision *in, HipaccImage &mag) {
+  int width = mag->width;
+  int height = mag->height;
+  int width_out = alignedWidth<T>(width, mag->alignment);
+
+  T *tmp = new T[width * height];
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      tmp[y * width + x] = std::abs(in[y * width + x]);
+    }
+  }
+
+  float max = 0.0;
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      if (tmp[y * width + x] > max)
+        max = tmp[y * width + x];
+    }
+  }
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      tmp[y * width + x] =
+          (T)(255.0 * pow(tmp[y * width + x] * (1.0 / max), 1.0 / 4.0));
+    }
+  }
+
+  T *out = new T[width_out * height];
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      out[y * width_out + x] = (T)tmp[y * width + x];
+    }
+  }
+
+  gpuErrchk(cudaMemcpy(mag->mem, out, sizeof(T) * width_out * height,
+                       cudaMemcpyHostToDevice));
+  free(tmp);
+  free(out);
+}
+
 // apply mask mag to result of FFT in
 // and ignore values for frequencies lower than r
 template <class T, class TPrecision>
@@ -619,4 +660,221 @@ void magScaleFFT(TPrecision *in, HipaccImage &mag, float r) {
   }
 
   free(scale);
+}
+
+template <class TPrecision, class T>
+void dct_forward(T *in, int width, int height, TPrecision *out,
+                 int width_in = 0) {
+  if (width_in == 0) {
+    width_in = width;
+  }
+
+  TPrecision *input = new TPrecision[width * height];
+
+  for (int y = 0; y < height / 2; y++) {
+    for (int x = 0; x < width / 2; x++) {
+      input[y * width + x] = (TPrecision)in[(2 * y) * width_in + (2 * x)];
+      input[y * width + (x + width / 2)] =
+          (TPrecision)in[(2 * y) * width_in + (2 * (width / 2 - x - 1) + 1)];
+      input[(y + height / 2) * width + x] =
+          (TPrecision)in[(2 * (height / 2 - y - 1) + 1) * width_in + (2 * x)];
+      input[(y + height / 2) * width + (x + width / 2)] =
+          (TPrecision)in[(2 * (height / 2 - y - 1) + 1) * width_in +
+                         (2 * (width / 2 - x - 1) + 1)];
+    }
+  }
+
+  // prepare output buffer
+  int out_width = width / 2 + 1;
+  std::complex<TPrecision> *output =
+      new std::complex<TPrecision>[out_width * height];
+
+  fft_transform(input, width, height, reinterpret_cast<TPrecision *>(output),
+                true);
+
+  const std::complex<TPrecision> i(0.0, 1.0);
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width / 2 + 1; x++) {
+      std::complex<TPrecision> test =
+          std::exp(-i * std::complex<TPrecision>(M_PI * y / (2 * height)));
+      std::complex<TPrecision> test2 =
+          std::exp(-i * std::complex<TPrecision>(M_PI * x / (2 * width)));
+      std::complex<TPrecision> test3 =
+          std::exp(-i * std::complex<TPrecision>(M_PI * (-x) / (2 * width)));
+      std::complex<TPrecision> test4 =
+          std::exp(-i * std::complex<TPrecision>(M_PI * (-y) / (2 * height)));
+      if (x == 0 && y == 0) {
+        out[y * width + x] =
+            4.0 * (test * (test2 * output[y * out_width + x])).real();
+      } else if (x == 0) {
+        out[y * width + x] =
+            2.0 * (test2 * (test * output[y * out_width + x] +
+                            test4 * output[(height - y) * out_width + x]))
+                      .real();
+      } else if (y == 0) {
+        out[y * width + x] =
+            2.0 * (test * (test2 * output[y * out_width + x] +
+                           test3 * std::conj(output[y * out_width + x])))
+                      .real();
+      } else {
+        out[y * width + x] =
+            2.0 *
+            (test * (test2 * output[y * out_width + x] +
+                     test3 * std::conj(output[(height - y) * out_width + x])))
+                .real();
+      }
+    }
+  }
+
+  for (int y = 0; y < height; y++) {
+    for (int x = width / 2 + 1; x < width; x++) {
+      std::complex<TPrecision> test =
+          std::exp(-i * std::complex<TPrecision>(M_PI * y / (2 * height)));
+      std::complex<TPrecision> test2 =
+          std::exp(-i * std::complex<TPrecision>(M_PI * x / (2 * width)));
+      std::complex<TPrecision> test3 =
+          std::exp(-i * std::complex<TPrecision>(M_PI * (-x) / (2 * width)));
+      std::complex<TPrecision> test4 =
+          std::exp(-i * std::complex<TPrecision>(M_PI * (-y) / (2 * height)));
+      if (x == 0 && y == 0) {
+        out[y * width + x] =
+            4.0 * (test * (test2 * std::conj(output[y * out_width + width - x])))
+                      .real();
+      } else if (x == 0) {
+        out[y * width + x] =
+            2.0 *
+            (test2 *
+             (test * std::conj(output[(height - y) * out_width + width - x]) +
+              test4 * std::conj(output[y * out_width + width - x])))
+                .real();
+      } else if (y == 0) {
+        out[y * width + x] =
+            2.0 * (test * (test2 * std::conj(output[y * out_width + width - x]) +
+                           test3 * output[y * out_width + width - x]))
+                      .real();
+      } else {
+        out[y * width + x] =
+            2.0 *
+            (test *
+             (test2 * std::conj(output[(height - y) * out_width + width - x]) +
+              test3 * output[y * out_width + width - x]))
+                .real();
+      }
+    }
+  }
+
+  free(input);
+  free(output);
+}
+
+template <class T, class TPrecision>
+void dct_inverse(TPrecision *in, int width, int height, T *out,
+                 int width_out = 0) {
+  if (width_out == 0) {
+    width_out = width;
+  }
+
+  int in_width = width / 2 + 1;
+
+  std::complex<TPrecision> *input =
+      new std::complex<TPrecision>[in_width * height];
+
+  const std::complex<TPrecision> i(0.0, 1.0);
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < in_width; x++) {
+      std::complex<TPrecision> test3 =
+          std::exp(-i * std::complex<TPrecision>(M_PI * (-x) / (2 * width)));
+      std::complex<TPrecision> test4 =
+          std::exp(-i * std::complex<TPrecision>(M_PI * (-y) / (2 * height)));
+      if (x == 0 && y == 0) {
+        input[y * in_width + x] = std::complex<TPrecision>(0.25, 0.0) * test4 *
+                                  test3 *
+                                  std::complex<TPrecision>(in[y * width + x]);
+      } else if (y == 0) {
+        input[y * in_width + x] =
+            std::complex<TPrecision>(0.25, 0.0) * test4 * test3 *
+            (std::complex<TPrecision>(in[y * width + x]) -
+             i * std::complex<TPrecision>(in[y * width + width - x]));
+      } else if (x == 0) {
+        input[y * in_width + x] =
+            std::complex<TPrecision>(0.25, 0.0) * test4 * test3 *
+            (std::complex<TPrecision>(in[y * width + x]) -
+             i * std::complex<TPrecision>(in[(height - y) * width + x]));
+      } else {
+        input[y * in_width + x] =
+            std::complex<TPrecision>(0.25, 0.0) * test4 * test3 *
+            ((std::complex<TPrecision>(in[y * width + x]) -
+              std::complex<TPrecision>(in[(height - y) * width + width - x])) -
+             i * (std::complex<TPrecision>(in[(height - y) * width + x]) +
+                  std::complex<TPrecision>(in[y * width + width - x])));
+      }
+    }
+  }
+
+  // prepare output buffer
+  TPrecision *output = new TPrecision[width * height];
+
+  fft_transform(reinterpret_cast<TPrecision *>(input), width, height, output,
+                false, true);
+
+  for (int y = 0; y < height / 2; y++) {
+    for (int x = 0; x < width / 2; x++) {
+      out[(2 * y) * width_out + (2 * x)] = (T)output[y * width + x];
+      out[(2 * y) * width_out + (2 * (width / 2 - x - 1) + 1)] =
+          (T)output[y * width + (x + width / 2)];
+      out[(2 * (height / 2 - y - 1) + 1) * width_out + (2 * x)] =
+          (T)output[(y + height / 2) * width + x];
+      out[(2 * (height / 2 - y - 1) + 1) * width_out +
+          (2 * (width / 2 - x - 1) + 1)] =
+          (T)output[(y + height / 2) * width + (x + width / 2)];
+    }
+  }
+
+  free(output);
+}
+
+template <class TPrecision>
+void dct_transform(TPrecision *in, int width, int height, TPrecision *out,
+                   bool forward = true) {
+  if (forward) {
+    dct_forward(in, width, height, out);
+  } else {
+    dct_inverse(in, width, height, out);
+  }
+}
+
+// forward FCT
+template <class T, class TPrecision> TPrecision *dct(HipaccImage &in) {
+  int width = in->width;
+  int height = in->height;
+  int width_in = alignedWidth<T>(width, in->alignment);
+
+  // prepare input buffer
+  T *input_d = new T[width_in * height];
+  // convert input
+  gpuErrchk(cudaMemcpy(input_d, in->mem, sizeof(T) * width_in * height,
+                       cudaMemcpyDeviceToHost));
+
+  TPrecision *out = new TPrecision[width * height];
+  dct_forward(input_d, width, height, out, width_in);
+
+  free(input_d);
+
+  return out;
+}
+
+// inverse FCT
+template <class T, class TPrecision> void idct(TPrecision *in, HipaccImage &out) {
+  int width = out->width;
+  int height = out->height;
+  int width_out = alignedWidth<T>(width, out->alignment);
+
+  T *out_d = new T[width_out * height];
+
+  dct_inverse(in, width, height, out_d, width_out);
+
+  gpuErrchk(cudaMemcpy(out->mem, out_d, sizeof(T) * width_out * height,
+                       cudaMemcpyHostToDevice));
+
+  free(out_d);
 }

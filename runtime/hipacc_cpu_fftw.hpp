@@ -25,6 +25,9 @@ template <> struct FFT<float> {
   static fftwf_plan fft_plan_dft_c2r_2d(TArgs... args) {
     return fftwf_plan_dft_c2r_2d(args...);
   }
+  template <typename... TArgs> static fftwf_plan fft_plan_r2r_2d(TArgs... args) {
+    return fftwf_plan_r2r_2d(args...);
+  }
   template <typename... TArgs> static void fft_execute(TArgs... args) {
     fftwf_execute(args...);
   }
@@ -59,6 +62,9 @@ template <> struct FFT<double> {
   template <typename... TArgs>
   static fftw_plan fft_plan_dft_c2r_2d(TArgs... args) {
     return fftw_plan_dft_c2r_2d(args...);
+  }
+  template <typename... TArgs> static fftw_plan fft_plan_r2r_2d(TArgs... args) {
+    return fftw_plan_r2r_2d(args...);
   }
   template <typename... TArgs> static void fft_execute(TArgs... args) {
     fftw_execute(args...);
@@ -328,6 +334,50 @@ void fft_transform_device(TPrecision *in, int width, int height, TPrecision *out
   fft_transform(in, width, height, out, forward, scale);
 }
 
+template <class TPrecision>
+void dct_transform(TPrecision *in, int width, int height, TPrecision *out,
+                   bool forward = true) {
+  typedef
+      typename std::conditional<std::is_same<TPrecision, float>::value,
+                                fftwf_complex, fftw_complex>::type fft_complex;
+  typedef typename std::conditional<std::is_same<TPrecision, float>::value,
+                                    fftwf_plan, fftw_plan>::type fft_plan;
+  bool floatPrecision = false;
+  if (std::is_same<TPrecision, float>::value) {
+    floatPrecision = true;
+  }
+
+  FFT<TPrecision>::fft_init_threads();
+  FFT<TPrecision>::fft_plan_with_nthreads(4);
+
+  // setup buffers
+  // create plans
+  fft_plan plan_image;
+  if (forward) {
+    TPrecision *fft = reinterpret_cast<TPrecision *>(out);
+    plan_image = FFT<TPrecision>::fft_plan_r2r_2d(
+        height, width, in, fft, FFTW_REDFT10, FFTW_REDFT10, FFTW_ESTIMATE);
+  } else {
+    TPrecision *fft = reinterpret_cast<TPrecision *>(in);
+    plan_image = FFT<TPrecision>::fft_plan_r2r_2d(
+        height, width, fft, out, FFTW_REDFT01, FFTW_REDFT01, FFTW_ESTIMATE);
+  }
+
+  FFT<TPrecision>::fft_execute(plan_image);
+
+  if (!forward) {
+    // scale
+#pragma omp parallel for
+    for (int ind = 0; ind < width * height; ++ind) {
+      out[ind] /= (2 * width * 2 * height);
+    }
+  }
+
+  // cleanup
+  FFT<TPrecision>::fft_destroy_plan(plan_image);
+  FFT<TPrecision>::fft_cleanup_threads();
+}
+
 // forward FFT
 template <class T, class TPrecision> TPrecision *fft(HipaccImage &in) {
   int width = in->width;
@@ -401,6 +451,43 @@ void fftToMag(TPrecision *in, HipaccImage &mag) {
   free(tmp);
 }
 
+// create magnitude from dct
+template <class T, class TPrecision>
+void dctToMag(TPrecision *in, HipaccImage &mag) {
+  int width = mag->width;
+  int height = mag->height;
+  int width_out = alignedWidth<T>(width, mag->alignment);
+
+  T *tmp = new T[width * height];
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      tmp[y * width + x] = std::abs(in[y * width + x]);
+    }
+  }
+
+  float max = 0.0;
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      if (tmp[y * width + x] > max)
+        max = tmp[y * width + x];
+    }
+  }
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      tmp[y * width + x] =
+          (T)(255.0 * pow(tmp[y * width + x] * (1.0 / max), 1.0 / 4.0));
+    }
+  }
+
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      ((T *)(mag->mem))[y * width_out + x] = (T)tmp[y * width + x];
+    }
+  }
+
+  free(tmp);
+}
+
 // apply mask mag to result of FFT in
 // and ignore values for frequencies lower than r
 template <class T, class TPrecision>
@@ -428,4 +515,55 @@ void magScaleFFT(TPrecision *in, HipaccImage &mag, float r) {
   }
 
   free(scale);
+}
+
+// forward DCT
+template <class T, class TPrecision> TPrecision *dct(HipaccImage &in) {
+  int width = in->width;
+  int height = in->height;
+  int width_in = alignedWidth<T>(width, in->alignment);
+
+  // prepare input buffer
+  TPrecision *input = new TPrecision[width * height];
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      input[y * width + x] = (TPrecision)((T *)(in->mem))[y * width_in + x];
+    }
+  }
+  // prepare output buffer
+  TPrecision *output = new TPrecision[width * height];
+
+  dct_transform(input, width, height, output);
+
+  free(input);
+
+  return output;
+}
+
+// inverse DCT
+template <class T, class TPrecision> void idct(TPrecision *in, HipaccImage &out) {
+  int width = out->width;
+  int height = out->height;
+  int width_out = alignedWidth<T>(width, out->alignment);
+
+  // prepare output buffer
+  TPrecision *output = new TPrecision[width * height];
+
+  dct_transform(in, width, height, output, false);
+
+  // truncate values outside of range 0-255
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      T val = output[y * width + x];
+      if (output[y * width + x] < 0) {
+        val = 0;
+      } else if (output[y * width + x] > 255) {
+        val = 255;
+      }
+      // convert output
+      ((T *)(out->mem))[y * width_out + x] = (T)(val);
+    }
+  }
+
+  free(output);
 }

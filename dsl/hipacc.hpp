@@ -49,7 +49,12 @@ void fft_transform(TPrecision *in, int width, int height, TPrecision *out,
 };
 template <class TPrecision>
 void fft_transform_device(TPrecision *in, int width, int height, TPrecision *out,
-                     bool forward = true, bool scale = false) {
+                          bool forward = true, bool scale = false){
+
+};
+template <class TPrecision>
+void dct_transform(TPrecision *in, int width, int height, TPrecision *out,
+                   bool forward = true){
 
 };
 template <class data_t, class TPrecision, class T> TPrecision *fft(Image<T> &in) {
@@ -68,7 +73,23 @@ void fftToMag(TPrecision *in, Image<T> &mag) {
                 "Type of Image and Memory have to be the same!");
 };
 template <class data_t, class TPrecision, class T>
+void dctToMag(TPrecision *in, Image<T> &mag) {
+  static_assert(std::is_same<T, data_t>::value,
+                "Type of Image and Memory have to be the same!");
+};
+template <class data_t, class TPrecision, class T>
 void magScaleFFT(TPrecision *in, Image<T> &mag, float r) {
+  static_assert(std::is_same<T, data_t>::value,
+                "Type of Image and Memory have to be the same!");
+};
+
+template <class data_t, class TPrecision, class T> TPrecision *dct(Image<T> &in) {
+  static_assert(std::is_same<T, data_t>::value,
+                "Type of Image and Memory have to be the same!");
+  return nullptr;
+};
+template <class data_t, class TPrecision, class T>
+void idct(TPrecision *in, Image<T> &out) {
   static_assert(std::is_same<T, data_t>::value,
                 "Type of Image and Memory have to be the same!");
 };
