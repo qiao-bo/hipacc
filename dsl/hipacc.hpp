@@ -42,6 +42,16 @@
 
 namespace hipacc {
 
+template <class TPrecision>
+void fft_transform(TPrecision *in, int width, int height, TPrecision *out,
+                     bool forward = true, bool scale = false) {
+
+};
+template <class TPrecision>
+void fft_transform_device(TPrecision *in, int width, int height, TPrecision *out,
+                     bool forward = true, bool scale = false) {
+
+};
 template <class data_t, class TPrecision, class T> TPrecision *fft(Image<T> &in) {
   static_assert(std::is_same<T, data_t>::value,
                 "Type of Image and Memory have to be the same!");

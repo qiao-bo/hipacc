@@ -277,8 +277,8 @@ void fftwConvolution(T *in, int width, int height, const V (&kernel)[rows][cols]
 }
 
 template <class TPrecision>
-void fftw_transform(TPrecision *in, int width, int height, TPrecision *out,
-                    bool forward = true) {
+void fft_transform(TPrecision *in, int width, int height, TPrecision *out,
+                    bool forward = true, bool scale = false) {
   typedef
       typename std::conditional<std::is_same<TPrecision, float>::value,
                                 fftwf_complex, fftw_complex>::type fft_complex;
@@ -306,7 +306,8 @@ void fftw_transform(TPrecision *in, int width, int height, TPrecision *out,
   }
 
   FFT<TPrecision>::fft_execute(plan_image);
-  if (!forward) {
+
+  if (!forward && scale) {
     // scale
 #pragma omp parallel for
     for (int ind = 0; ind < width * height; ++ind) {
@@ -317,6 +318,14 @@ void fftw_transform(TPrecision *in, int width, int height, TPrecision *out,
   // cleanup
   FFT<TPrecision>::fft_destroy_plan(plan_image);
   FFT<TPrecision>::fft_cleanup_threads();
+}
+
+template <class TPrecision>
+void fft_transform_device(TPrecision *in, int width, int height, TPrecision *out,
+                    bool forward = true, bool scale = false) {
+  //static_assert(false, "fft_transform_device not available for cpu!");
+  std::cerr << "fft_transform_device is not available for cpu! Using fft_transform instead." << std::endl;
+  fft_transform(in, width, height, out, forward, scale);
 }
 
 // forward FFT
@@ -335,7 +344,7 @@ template <class T, class TPrecision> TPrecision *fft(HipaccImage &in) {
   // prepare output buffer
   TPrecision *output = new TPrecision[2 * (width / 2 + 1) * height];
 
-  fftw_transform(input, width, height, output);
+  fft_transform(input, width, height, output);
 
   free(input);
 
@@ -351,7 +360,7 @@ template <class T, class TPrecision> void ifft(TPrecision *in, HipaccImage &out)
   // prepare output buffer
   TPrecision *output = new TPrecision[width * height];
 
-  fftw_transform(in, width, height, output, false);
+  fft_transform(in, width, height, output, false);
 
   // truncate values outside of range 0-255
   for (int y = 0; y < height; y++) {
@@ -388,6 +397,8 @@ void fftToMag(TPrecision *in, HipaccImage &mag) {
       ((T *)(mag->mem))[y * width_out + x] = (T)tmp[y * width + x];
     }
   }
+
+  free(tmp);
 }
 
 // apply mask mag to result of FFT in

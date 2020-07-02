@@ -5,6 +5,7 @@
 #include "hipacc_fft_helper.hpp"
 
 #include <iostream>
+#include <complex>
 
 #define gpuErrchk(ans)                                                           \
   { gpuAssert((ans), __FILE__, __LINE__); }
@@ -321,8 +322,8 @@ void cufftConvolution(T *in, int width, int height, const V (&kernel)[rows][cols
 }
 
 template <class TPrecision>
-void cufft_transform(TPrecision *in, int width, int height, TPrecision *out,
-                     bool forward = true) {
+void fft_transform(TPrecision *in, int width, int height, TPrecision *out,
+                     bool forward = true, bool scale = false) {
   typedef typename std::conditional<std::is_same<TPrecision, float>::value,
                                     cufftComplex, cufftDoubleComplex>::type
       cufft_Complex;
@@ -403,10 +404,10 @@ void cufft_transform(TPrecision *in, int width, int height, TPrecision *out,
     }
   }
 
-  if (forward) {
+  if (!forward && scale) {
     // Pointwise Scale
-    ScalePw<<<numBlocks, threadsPerBlock>>>(
-        reinterpret_cast<cufft_Complex *>(d_image_fft), intermediateWidth,
+    ScaleE<<<numBlocks, threadsPerBlock>>>(
+        reinterpret_cast<cufft_Real *>(d_in), image_width,
         image_height, 1.0 / (image_height * image_width));
     HANDLE_ERROR(cudaGetLastError());
   }
@@ -425,6 +426,83 @@ void cufft_transform(TPrecision *in, int width, int height, TPrecision *out,
   cufftDestroy(plan_forward_many);
   cudaFree(d_in);
   cudaFree(d_image_fft);
+}
+
+template <class TPrecision>
+void fft_transform_device(TPrecision *in, int width, int height, TPrecision *out,
+                     bool forward = true, bool scale = false) {
+  typedef typename std::conditional<std::is_same<TPrecision, float>::value,
+                                    cufftComplex, cufftDoubleComplex>::type
+      cufft_Complex;
+  typedef typename std::conditional<std::is_same<TPrecision, float>::value,
+                                    cufftReal, cufftDoubleReal>::type cufft_Real;
+  bool floatPrecision = false;
+  if (std::is_same<TPrecision, float>::value) {
+    floatPrecision = true;
+  }
+
+  int image_width = width;
+  int image_height = height;
+
+  int matsize = image_width * image_height;
+
+  // create plans
+  cufftHandle plan_forward_many;
+  int n[2] = {image_height, image_width};
+  if (floatPrecision) {
+    if (forward) {
+      cufftPlanMany(&plan_forward_many, 2, n, nullptr, 1, 1, nullptr, 1, 1,
+                    CUFFT_R2C, 1);
+    } else {
+      cufftPlanMany(&plan_forward_many, 2, n, nullptr, 1, 1, nullptr, 1, 1,
+                    CUFFT_C2R, 1);
+    }
+  } else {
+    if (forward) {
+      cufftPlanMany(&plan_forward_many, 2, n, nullptr, 1, 1, nullptr, 1, 1,
+                    CUFFT_D2Z, 1);
+    } else {
+      cufftPlanMany(&plan_forward_many, 2, n, nullptr, 1, 1, nullptr, 1, 1,
+                    CUFFT_Z2D, 1);
+    }
+  }
+
+  // define dimensions
+  dim3 threadsPerBlock(32, 32); // 1024 threads
+  dim3 numBlocks(image_width / threadsPerBlock.x + 1,
+                 image_height / threadsPerBlock.y + 1);
+
+  // Transform signal
+  if (forward) {
+    if (floatPrecision) {
+      cufftExecR2C(plan_forward_many, reinterpret_cast<cufftReal *>(in),
+                   reinterpret_cast<cufftComplex *>(out));
+    } else {
+      cufftExecD2Z(plan_forward_many, reinterpret_cast<cufftDoubleReal *>(in),
+                   reinterpret_cast<cufftDoubleComplex *>(out));
+    }
+  } else {
+    if (floatPrecision) {
+      cufftExecC2R(plan_forward_many,
+                   reinterpret_cast<cufftComplex *>(in),
+                   reinterpret_cast<cufftReal *>(out));
+    } else {
+      cufftExecZ2D(plan_forward_many,
+                   reinterpret_cast<cufftDoubleComplex *>(in),
+                   reinterpret_cast<cufftDoubleReal *>(out));
+    }
+  }
+
+  if (!forward && scale) {
+    // Pointwise Scale
+    ScaleE<<<numBlocks, threadsPerBlock>>>(
+        reinterpret_cast<cufft_Real *>(out), image_width,
+        image_height, 1.0 / (image_height * image_width));
+    HANDLE_ERROR(cudaGetLastError());
+  }
+
+  // cleanup
+  cufftDestroy(plan_forward_many);
 }
 
 // forward FFT
@@ -447,7 +525,7 @@ template <class T, class TPrecision> TPrecision *fft(HipaccImage &in) {
 
   // prepare output buffer
   TPrecision *output = new TPrecision[2 * (width / 2 + 1) * height];
-  cufft_transform(input, width, height, output, true);
+  fft_transform(input, width, height, output, true);
 
   free(input);
   free(input_d);
@@ -464,7 +542,7 @@ template <class T, class TPrecision> void ifft(TPrecision *in, HipaccImage &out)
   // prepare output buffer
   TPrecision *output = new TPrecision[width * height];
 
-  cufft_transform(in, width, height, output, false);
+  fft_transform(in, width, height, output, false, true);
 
   // truncate values outside of range 0-255
   T *out_d = new T[width_out * height];
