@@ -58,7 +58,7 @@ public:
   }
 
   void kernel() {
-    output() = reduce(dom, Reduce::MIN, [&]() -> int { return in(dom); });
+    output() = reduce(dom, Reduce::MIN, [&]() -> TYPE { return in(dom); });
   }
 };
 
@@ -80,9 +80,9 @@ public:
   void kernel() {
     float w_avg =
         convolve(mask, Reduce::SUM, [&]() -> float { return mask() * in(mask); });
-    float avg = reduce(dom, Reduce::SUM, [&]() -> int { return in(dom); }) /
-                (float)(size_x * size_y);
-    float max = reduce(dom, Reduce::MAX, [&]() -> int { return in(dom); });
+    float avg = reduce(dom, Reduce::SUM, [&]() -> float { return in(dom); }) /
+                (TYPE)(size_x * size_y);
+    float max = reduce(dom, Reduce::MAX, [&]() -> TYPE { return in(dom); });
     output() = ((w_avg - avg) > 1) || (max > (avg / 2 + 40)) ? 0 : 255;
   }
 };
@@ -102,7 +102,7 @@ public:
 
   void kernel() {
     output() = (TYPE)(convolve(mask, Reduce::SUM,
-                               [&]() -> float { return mask() * input(mask); }) +
+                               [&]() -> TYPE { return mask() * input(mask); }) +
                       0.0f);
   }
 };

@@ -410,7 +410,7 @@ template <class T, class TPrecision> void ifft(TPrecision *in, HipaccImage &out)
   // prepare output buffer
   TPrecision *output = new TPrecision[width * height];
 
-  fft_transform(in, width, height, output, false);
+  fft_transform(in, width, height, output, false, true);
 
   // truncate values outside of range 0-255
   for (int y = 0; y < height; y++) {
