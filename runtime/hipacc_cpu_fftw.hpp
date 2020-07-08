@@ -402,7 +402,7 @@ template <class T, class TPrecision> TPrecision *fft(HipaccImage &in) {
 }
 
 // inverse FFT
-template <class T, class TPrecision> void ifft(TPrecision *in, HipaccImage &out) {
+template <class T, class TPrecision> void ifft(TPrecision *in, HipaccImage &out, bool scaled = true) {
   int width = out->width;
   int height = out->height;
   int width_out = alignedWidth<T>(width, out->alignment);
@@ -410,7 +410,7 @@ template <class T, class TPrecision> void ifft(TPrecision *in, HipaccImage &out)
   // prepare output buffer
   TPrecision *output = new TPrecision[width * height];
 
-  fft_transform(in, width, height, output, false, true);
+  fft_transform(in, width, height, output, false, scaled);
 
   // truncate values outside of range 0-255
   for (int y = 0; y < height; y++) {
