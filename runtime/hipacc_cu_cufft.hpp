@@ -1439,3 +1439,63 @@ template <class T, class TPrecision> void idct(TPrecision *in, HipaccImage &out)
 
 }
 */
+
+// function wrappers for images
+
+template <class T> void fftShift(HipaccImage &mag) {
+  int width = mag->width;
+  int height = mag->height;
+  int width_in = alignedWidth<T>(width, mag->alignment);
+  T *input = new T[width_in * height];
+  gpuErrchk(cudaMemcpy(input, mag->mem, sizeof(T) * width_in * height,
+                       cudaMemcpyDeviceToHost));
+
+  shiftFFT(input, width, height, width_in);
+
+  gpuErrchk(cudaMemcpy(mag->mem, input, sizeof(T) * width_in * height,
+                       cudaMemcpyHostToDevice));
+}
+
+template <class T> void ifftShift(HipaccImage &mag) {
+  int width = mag->width;
+  int height = mag->height;
+  int width_in = alignedWidth<T>(width, mag->alignment);
+  T *input = new T[width_in * height];
+  gpuErrchk(cudaMemcpy(input, mag->mem, sizeof(T) * width_in * height,
+                       cudaMemcpyDeviceToHost));
+
+  iShiftFFT(input, width, height, width_in);
+
+  gpuErrchk(cudaMemcpy(mag->mem, input, sizeof(T) * width_in * height,
+                       cudaMemcpyHostToDevice));
+}
+
+template <class T>
+void fftResetMask(HipaccImage &mag, int radius, bool low, int window = 0) {
+  int width = mag->width;
+  int height = mag->height;
+  int width_in = alignedWidth<T>(width, mag->alignment);
+  T *input = new T[width_in * height];
+  gpuErrchk(cudaMemcpy(input, mag->mem, sizeof(T) * width_in * height,
+                       cudaMemcpyDeviceToHost));
+
+  magResetFreq(input, width, height, width_in, radius, window, low);
+
+  gpuErrchk(cudaMemcpy(mag->mem, input, sizeof(T) * width_in * height,
+                       cudaMemcpyHostToDevice));
+}
+
+template <class T>
+void fftApplyPassFilter(HipaccImage &mag, int radius, bool low, int window = 0) {
+  int width = mag->width;
+  int height = mag->height;
+  int width_in = alignedWidth<T>(width, mag->alignment);
+  T *input = new T[width_in * height];
+  gpuErrchk(cudaMemcpy(input, mag->mem, sizeof(T) * width_in * height,
+                       cudaMemcpyDeviceToHost));
+
+  magPassFilter(input, width, height, width_in, radius, window, low);
+
+  gpuErrchk(cudaMemcpy(mag->mem, input, sizeof(T) * width_in * height,
+                       cudaMemcpyHostToDevice));
+}

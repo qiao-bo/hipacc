@@ -566,3 +566,39 @@ template <class T, class TPrecision> void idct(TPrecision *in, HipaccImage &out)
 
   free(output);
 }
+
+// function wrappers for images
+
+template <class T> void fftShift(HipaccImage &mag) {
+  int width = mag->width;
+  int height = mag->height;
+  int width_in = alignedWidth<T>(width, mag->alignment);
+
+  shiftFFT((T *)(mag->mem), width, height, width_in);
+}
+
+template <class T> void ifftShift(HipaccImage &mag) {
+  int width = mag->width;
+  int height = mag->height;
+  int width_in = alignedWidth<T>(width, mag->alignment);
+
+  iShiftFFT((T *)(mag->mem), width, height, width_in);
+}
+
+template <class T>
+void fftResetMask(HipaccImage &mag, int radius, bool low, int window = 0) {
+  int width = mag->width;
+  int height = mag->height;
+  int width_in = alignedWidth<T>(width, mag->alignment);
+
+  magResetFreq((T *)(mag->mem), width, height, width_in, radius, window, low);
+}
+
+template <class T>
+void fftApplyPassFilter(HipaccImage &mag, int radius, bool low, int window = 0) {
+  int width = mag->width;
+  int height = mag->height;
+  int width_in = alignedWidth<T>(width, mag->alignment);
+
+  magPassFilter((T *)(mag->mem), width, height, width_in, radius, window, low);
+}
