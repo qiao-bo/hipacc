@@ -1,6 +1,8 @@
+#include <cuComplex.h>
 #include <cufft.h>
 #include <cufftXt.h>
 
+#include "cuda_complex.hpp"
 #include "hipacc_base_standalone.hpp"
 #include "hipacc_fft_helper.hpp"
 
@@ -107,6 +109,7 @@ __global__ void ScalePw(C *image, int Nx, int Ny, double scale) {
   }
 }
 
+// scale element-wise
 template <class T, class TScale>
 __global__ void ScaleE(T *image, int Nx, int Ny, TScale scale) {
   int tix = threadIdx.x + blockIdx.x * blockDim.x;
@@ -118,6 +121,211 @@ __global__ void ScaleE(T *image, int Nx, int Ny, TScale scale) {
 
   if ((tix < Nx) && (tiy < Ny)) {
     image[tid] = image[tid] * scale;
+  }
+}
+
+// Makhoul reorder
+template <class T, class U>
+__global__ void Reorder(T *image, U *out, int width, int height, int width_in,
+                        int blockX, int blockY) {
+  int x = threadIdx.x + blockIdx.x * blockDim.x;
+  int y = threadIdx.y + blockIdx.y * blockDim.y;
+  int tid = x + width_in * y;
+
+  if (tid >= width_in * height)
+    return;
+
+  if ((x < width) && (y < height)) {
+    int dstX;
+    if (x % 2 == 0) {
+      dstX = x / 2;
+    } else {
+      dstX = (width - (x / 2) - 1);
+    }
+    int dstY;
+    if (y % 2 == 0) {
+      dstY = y / 2;
+    } else {
+      dstY = (width - (y / 2) - 1);
+    }
+    out[dstY * width + dstX] = (U)image[x + width_in * y];
+  }
+}
+
+// Makhoul inverse reorder
+template <class T, class U>
+__global__ void iReorder(T *in, U *image, int width, int height, int width_out,
+                         int blockX, int blockY) {
+  int x = threadIdx.x + blockIdx.x * blockDim.x;
+  int y = threadIdx.y + blockIdx.y * blockDim.y;
+  int tid = x + width_out * y;
+
+  if (tid >= width_out * height)
+    return;
+
+  if ((x < width) && (y < height)) {
+    int dstX;
+    if (x % 2 == 0) {
+      dstX = x / 2;
+    } else {
+      dstX = (width - (x / 2) - 1);
+    }
+    int dstY;
+    if (y % 2 == 0) {
+      dstY = y / 2;
+    } else {
+      dstY = (width - (y / 2) - 1);
+    }
+    image[x + width_out * y] = (T)in[dstY * width + dstX];
+  }
+}
+
+// Makhoul factor multiplication
+template <class T>
+__global__ void Factoring(complex<T> *in, T *out, int width, int height,
+                          int blockX, int blockY, int out_width) {
+  int x = threadIdx.x + blockIdx.x * blockDim.x;
+  int y = threadIdx.y + blockIdx.y * blockDim.y;
+  int tid = x + width * y;
+
+  if (tid >= width * height)
+    return;
+
+  const complex<T> i(0.0, 1.0);
+  complex<T> factor = exp(-i * complex<T>(M_PI * y / (2 * height)));
+  complex<T> factor2 = exp(-i * complex<T>(M_PI * x / (2 * width)));
+  complex<T> factor3 = exp(-i * complex<T>(M_PI * (-x) / (2 * width)));
+  complex<T> factor4 = exp(-i * complex<T>(M_PI * (-y) / (2 * height)));
+
+  if ((x < width / 2 + 1) && (y < height)) {
+    if (x == 0 && y == 0) {
+      out[y * width + x] =
+          4.0 * (factor * (factor2 * in[y * out_width + x])).real();
+    } else if (x == 0) {
+      out[y * width + x] =
+          2.0 * (factor2 * (factor * in[y * out_width + x] +
+                            factor4 * in[(height - y) * out_width + x]))
+                    .real();
+    } else if (y == 0) {
+      out[y * width + x] =
+          2.0 * (factor * (factor2 * in[y * out_width + x] +
+                           factor3 * conj(in[y * out_width + x])))
+                    .real();
+    } else {
+      out[y * width + x] =
+          2.0 * (factor * (factor2 * in[y * out_width + x] +
+                           factor3 * conj(in[(height - y) * out_width + x])))
+                    .real();
+    }
+  } else if ((x < width) && (y < height)) {
+    if (x == 0 && y == 0) {
+      out[y * width + x] =
+          4.0 * (factor * (factor2 * conj(in[y * out_width + width - x]))).real();
+    } else if (x == 0) {
+      out[y * width + x] =
+          2.0 *
+          (factor2 * (factor * conj(in[(height - y) * out_width + width - x]) +
+                      factor4 * conj(in[y * out_width + width - x])))
+              .real();
+    } else if (y == 0) {
+      out[y * width + x] =
+          2.0 * (factor * (factor2 * conj(in[y * out_width + width - x]) +
+                           factor3 * in[y * out_width + width - x]))
+                    .real();
+    } else {
+      out[y * width + x] =
+          2.0 *
+          (factor * (factor2 * conj(in[(height - y) * out_width + width - x]) +
+                     factor3 * in[y * out_width + width - x]))
+              .real();
+    }
+  }
+}
+
+// Makhoul inverse factor multiplication
+template <class T>
+__global__ void iFactoring(T *in, complex<T> *out, int width, int height,
+                           int blockX, int blockY) {
+  int x = threadIdx.x + blockIdx.x * blockDim.x;
+  int y = threadIdx.y + blockIdx.y * blockDim.y;
+  int tid = x + width * y;
+
+  if (tid >= width * height)
+    return;
+
+  int in_width = width / 2 + 1;
+
+  const complex<T> i(0.0, 1.0);
+
+  if ((x < in_width) && (y < height)) {
+    complex<T> factor3 = exp(-i * complex<T>(M_PI * (-x) / (2 * width)));
+    complex<T> factor4 = exp(-i * complex<T>(M_PI * (-y) / (2 * height)));
+    if (x == 0 && y == 0) {
+      out[y * in_width + x] = complex<T>(0.25, 0.0) * factor4 * factor3 *
+                              complex<T>(in[y * width + x]);
+    } else if (y == 0) {
+      out[y * in_width + x] = complex<T>(0.25, 0.0) * factor4 * factor3 *
+                              (complex<T>(in[y * width + x]) -
+                               i * complex<T>(in[y * width + width - x]));
+    } else if (x == 0) {
+      out[y * in_width + x] = complex<T>(0.25, 0.0) * factor4 * factor3 *
+                              (complex<T>(in[y * width + x]) -
+                               i * complex<T>(in[(height - y) * width + x]));
+    } else {
+      out[y * in_width + x] =
+          complex<T>(0.25, 0.0) * factor4 * factor3 *
+          ((complex<T>(in[y * width + x]) -
+            complex<T>(in[(height - y) * width + width - x])) -
+           i * (complex<T>(in[(height - y) * width + x]) +
+                complex<T>(in[y * width + width - x])));
+    }
+  }
+}
+
+template <class T, class U>
+__global__ void CopyAligned(T *in, U *out, int width, int height, int width_in,
+                            int width_out) {
+  int x = threadIdx.x + blockIdx.x * blockDim.x;
+  int y = threadIdx.y + blockIdx.y * blockDim.y;
+  int tid = x + width * y;
+
+  if (tid >= width_in * height)
+    return;
+
+  if ((x < width) && (y < height)) {
+    out[y * width_out + x] = (U)in[x + width_in * y];
+  }
+}
+
+template <class T, class U>
+__global__ void FillMem(T *mem, U val, int width, int height) {
+  int x = threadIdx.x + blockIdx.x * blockDim.x;
+  int y = threadIdx.y + blockIdx.y * blockDim.y;
+  int tid = x + width * y;
+
+  if (tid >= width * height)
+    return;
+
+  if ((x < width) && (y < height)) {
+    mem[y * width + x] = (T)val;
+  }
+}
+
+template <class T, class U>
+__global__ void PutKernel(T *kernel, U *dest, int kw, int kh, int nx, int ny) {
+  int x = threadIdx.x + blockIdx.x * blockDim.x;
+  int y = threadIdx.y + blockIdx.y * blockDim.y;
+  int tid = x + kw * y;
+
+  if (tid >= kw * kh)
+    return;
+
+  if ((x < kw) && (y < kh)) {
+    int kx = x - kw / 2;
+    int ky = y - kh / 2;
+
+    dest[nx * ((ny + ky) % ny) + ((nx + kx) % nx)] =
+        (U)kernel[kw * (kh / 2 + ky) + (kw / 2 + kx)];
   }
 }
 
@@ -164,6 +372,10 @@ void fftConvolve(TPrecision *in, int width, int height, V *k, int k_w, int k_h,
   cudaMemcpy(d_kernel, kernel, sizeof(TPrecision) * matsize,
              cudaMemcpyHostToDevice);
 
+  cudaDeviceSynchronize(); // only for time measure
+  // start
+  auto start_time = std::chrono::system_clock::now();
+
   // create plans
   cufftHandle plan_forward_many, plan_reverse_many;
   int n[2] = {image_height, image_width};
@@ -178,11 +390,6 @@ void fftConvolve(TPrecision *in, int width, int height, V *k, int k_w, int k_h,
     cufftPlanMany(&plan_reverse_many, 2, n, nullptr, 1, 1, nullptr, 1, 1,
                   CUFFT_Z2D, 1);
   }
-
-  cudaDeviceSynchronize(); // only for time measure
-
-  // start
-  auto start_time = std::chrono::system_clock::now();
 
   // Transform signal and kernel
   if (floatPrecision) {
@@ -218,16 +425,15 @@ void fftConvolve(TPrecision *in, int width, int height, V *k, int k_w, int k_h,
                  reinterpret_cast<cufftDoubleReal *>(d_out));
   }
 
-  // Copy device memory to host
-  cudaMemcpy(out, d_out, sizeof(TPrecision) * matsize, cudaMemcpyDeviceToHost);
-
   cudaDeviceSynchronize(); // only for time measure
-
   // stop
   auto end_time = std::chrono::system_clock::now();
   auto elapsed_time = std::chrono::duration_cast<std::chrono::microseconds>(
       end_time - start_time);
   std::cout << (float)elapsed_time.count() / 1000.0 << " ms" << std::endl;
+
+  // Copy device memory to host
+  cudaMemcpy(out, d_out, sizeof(TPrecision) * matsize, cudaMemcpyDeviceToHost);
 
   // cleanup
   cufftDestroy(plan_forward_many);
@@ -238,6 +444,101 @@ void fftConvolve(TPrecision *in, int width, int height, V *k, int k_w, int k_h,
   cudaFree(d_image_fft);
   cudaFree(d_kernel_fft);
   cudaFree(d_out);
+}
+
+template <class TPrecision>
+void fftConvolve_device(TPrecision *in, int width, int height, TPrecision *k,
+                        TPrecision *out) {
+  typedef typename std::conditional<std::is_same<TPrecision, float>::value,
+                                    cufftComplex, cufftDoubleComplex>::type
+      cufft_Complex;
+  typedef typename std::conditional<std::is_same<TPrecision, float>::value,
+                                    cufftReal, cufftDoubleReal>::type cufft_Real;
+  bool floatPrecision = false;
+  if (std::is_same<TPrecision, float>::value) {
+    floatPrecision = true;
+  }
+
+  int image_width = width;
+  int image_height = height;
+
+  std::cout << width << " x " << height << std::endl;
+
+  int intermediateWidth = image_width / 2 + 1;
+  int intermediateSize = image_height * intermediateWidth;
+
+  // Allocate device memory
+  cufft_Complex *d_image_fft, *d_kernel_fft;
+  cudaMalloc(reinterpret_cast<void **>(&d_image_fft),
+             sizeof(cufft_Complex) * intermediateSize);
+  cudaMalloc(reinterpret_cast<void **>(&d_kernel_fft),
+             sizeof(cufft_Complex) * intermediateSize);
+
+  // create plans
+  cufftHandle plan_forward_many, plan_reverse_many;
+  int n[2] = {image_height, image_width};
+  if (floatPrecision) {
+    cufftPlanMany(&plan_forward_many, 2, n, nullptr, 1, 1, nullptr, 1, 1,
+                  CUFFT_R2C, 1);
+    cufftPlanMany(&plan_reverse_many, 2, n, nullptr, 1, 1, nullptr, 1, 1,
+                  CUFFT_C2R, 1);
+  } else {
+    cufftPlanMany(&plan_forward_many, 2, n, nullptr, 1, 1, nullptr, 1, 1,
+                  CUFFT_D2Z, 1);
+    cufftPlanMany(&plan_reverse_many, 2, n, nullptr, 1, 1, nullptr, 1, 1,
+                  CUFFT_Z2D, 1);
+  }
+
+  cudaDeviceSynchronize(); // only for time measure
+  // start
+  auto start_time = std::chrono::system_clock::now();
+
+  // Transform signal and kernel
+  if (floatPrecision) {
+    cufftExecR2C(plan_forward_many, reinterpret_cast<cufftReal *>(in),
+                 reinterpret_cast<cufftComplex *>(d_image_fft));
+    cufftExecR2C(plan_forward_many, reinterpret_cast<cufftReal *>(k),
+                 reinterpret_cast<cufftComplex *>(d_kernel_fft));
+  } else {
+    cufftExecD2Z(plan_forward_many, reinterpret_cast<cufftDoubleReal *>(in),
+                 reinterpret_cast<cufftDoubleComplex *>(d_image_fft));
+    cufftExecD2Z(plan_forward_many, reinterpret_cast<cufftDoubleReal *>(k),
+                 reinterpret_cast<cufftDoubleComplex *>(d_kernel_fft));
+  }
+
+  // define dimensions
+  dim3 threadsPerBlock(32, 32); // 1024 threads
+  dim3 numBlocks(image_width / threadsPerBlock.x + 1,
+                 image_height / threadsPerBlock.y + 1);
+
+  // Pointwise Multiplication in Frequency Domain
+  MulScalePw<<<numBlocks, threadsPerBlock>>>(
+      reinterpret_cast<cufft_Complex *>(d_image_fft),
+      reinterpret_cast<cufft_Complex *>(d_kernel_fft), intermediateWidth,
+      image_height, 1.0 / (image_height * image_width));
+  HANDLE_ERROR(cudaGetLastError());
+
+  if (floatPrecision) {
+    cufftExecC2R(plan_reverse_many, reinterpret_cast<cufftComplex *>(d_image_fft),
+                 reinterpret_cast<cufftReal *>(out));
+  } else {
+    cufftExecZ2D(plan_reverse_many,
+                 reinterpret_cast<cufftDoubleComplex *>(d_image_fft),
+                 reinterpret_cast<cufftDoubleReal *>(out));
+  }
+
+  cudaDeviceSynchronize(); // only for time measure
+  // stop
+  auto end_time = std::chrono::system_clock::now();
+  auto elapsed_time = std::chrono::duration_cast<std::chrono::microseconds>(
+      end_time - start_time);
+  std::cout << (float)elapsed_time.count() / 1000.0 << " ms" << std::endl;
+
+  // cleanup
+  cufftDestroy(plan_forward_many);
+  cufftDestroy(plan_reverse_many);
+  cudaFree(d_image_fft);
+  cudaFree(d_kernel_fft);
 }
 
 bool estimateConvolutionExecutionTime(int width, int height, int padWidth,
@@ -286,8 +587,10 @@ void cufftConvolution(T *in, int width, int height, const V (&kernel)[rows][cols
   }
   int padSize = padWidth * padHeight;
 
+  /*
   estimateConvolutionExecutionTime(width, height, padWidth, padHeight, k_w, k_h,
                                    linear);
+  */
 
   // prepare input buffer
   TPrecision *input = new TPrecision[padSize];
@@ -321,9 +624,80 @@ void cufftConvolution(T *in, int width, int height, const V (&kernel)[rows][cols
   free(out_d);
 }
 
+template <class TPrecision, class T, class U, class V, size_t rows, size_t cols,
+          class B = int>
+void cufftConvolution_device(T *in, int width, int height,
+                             const V (&kernel)[rows][cols], int k_w, int k_h,
+                             U *out, int alignment, bool linear,
+                             B boundaryConstant = 0) {
+  assert(rows == k_h && cols == k_w);
+
+  int width_in = alignedWidth<T>(width, alignment);
+  int width_out = alignedWidth<U>(width, alignment);
+
+  int padWidth = width;
+  int padHeight = height;
+  if (linear) {
+    padWidth = width + k_w / 2;
+    padHeight = height + k_h / 2;
+  }
+  int padSize = padWidth * padHeight;
+
+  /*
+  estimateConvolutionExecutionTime(width, height, padWidth, padHeight, k_w, k_h,
+                                   linear);
+  */
+
+  V *kernel_in;
+  cudaMalloc(reinterpret_cast<void **>(&kernel_in), sizeof(V) * k_w * k_h);
+  gpuErrchk(cudaMemcpy(kernel_in, (V *)(&kernel[0][0]), sizeof(V) * k_w * k_h,
+                       cudaMemcpyHostToDevice));
+
+  TPrecision *d_in, *d_kernel, *d_out;
+  cudaMalloc(reinterpret_cast<void **>(&d_in), sizeof(TPrecision) * padSize);
+  cudaMalloc(reinterpret_cast<void **>(&d_kernel), sizeof(TPrecision) * padSize);
+  cudaMalloc(reinterpret_cast<void **>(&d_out), sizeof(TPrecision) * padSize);
+
+  dim3 threadsPerBlock(32, 32); // 1024 threads
+  dim3 numBlocks(width / threadsPerBlock.x + 1, height / threadsPerBlock.y + 1);
+  dim3 threadsPerBlock2(32, 32); // 1024 threads
+  dim3 numBlocks2(padWidth / threadsPerBlock.x + 1,
+                  padHeight / threadsPerBlock.y + 1);
+
+  // prepare image buffer
+  if (linear) {
+    FillMem<<<numBlocks2, threadsPerBlock2>>>(d_in, (TPrecision)boundaryConstant,
+                                              padWidth, padHeight);
+    HANDLE_ERROR(cudaGetLastError());
+  }
+  CopyAligned<<<numBlocks, threadsPerBlock>>>(in, d_in, width, height, width_in,
+                                              padWidth);
+  HANDLE_ERROR(cudaGetLastError());
+
+  // prepare kernel buffer
+  cudaMemset(d_kernel, 0, sizeof(TPrecision) * padSize);
+  PutKernel<<<numBlocks, threadsPerBlock>>>(kernel_in, d_kernel, k_w, k_h,
+                                            padWidth, padHeight);
+
+  // prepare output buffer
+  // TPrecision *output = new TPrecision[padSize];
+  fftConvolve_device(d_in, padWidth, padHeight, d_kernel, d_out);
+
+  // convert output
+
+  CopyAligned<<<numBlocks, threadsPerBlock>>>(d_out, out, width, height, padWidth,
+                                              width_out);
+  HANDLE_ERROR(cudaGetLastError());
+
+  // clean up
+  cudaFree(d_in);
+  cudaFree(d_kernel);
+  cudaFree(d_out);
+}
+
 template <class TPrecision>
-void fft_transform(TPrecision *in, int width, int height, TPrecision *out,
-                     bool forward = true, bool scale = false) {
+void fftTransform(TPrecision *in, int width, int height, TPrecision *out,
+                  bool forward = true, bool scale = false) {
   typedef typename std::conditional<std::is_same<TPrecision, float>::value,
                                     cufftComplex, cufftDoubleComplex>::type
       cufft_Complex;
@@ -429,8 +803,11 @@ void fft_transform(TPrecision *in, int width, int height, TPrecision *out,
 }
 
 template <class TPrecision>
-void fft_transform_device(TPrecision *in, int width, int height, TPrecision *out,
-                     bool forward = true, bool scale = false) {
+void fftTransformDevice(TPrecision *in, int width, int height, TPrecision *out,
+                        bool forward = true, bool scale = false,
+                        int alignment = 0) {
+  if (alignment == 0)
+    alignment = width;
   typedef typename std::conditional<std::is_same<TPrecision, float>::value,
                                     cufftComplex, cufftDoubleComplex>::type
       cufft_Complex;
@@ -444,32 +821,37 @@ void fft_transform_device(TPrecision *in, int width, int height, TPrecision *out
   int image_width = width;
   int image_height = height;
 
-  int matsize = image_width * image_height;
+  // int matsize = image_width * image_height;
 
   // create plans
   cufftHandle plan_forward_many;
   int n[2] = {image_height, image_width};
+  int inembed[2] = {height, alignment};
+  int onembed[2] = {height, width / 2 + 1};
+  int idist = alignment * height;
+  int odist = (width / 2 + 1) * height;
+
   if (floatPrecision) {
     if (forward) {
-      cufftPlanMany(&plan_forward_many, 2, n, nullptr, 1, 1, nullptr, 1, 1,
-                    CUFFT_R2C, 1);
+      cufftPlanMany(&plan_forward_many, 2, n, inembed, 1, idist, onembed, 1,
+                    odist, CUFFT_R2C, 1);
     } else {
-      cufftPlanMany(&plan_forward_many, 2, n, nullptr, 1, 1, nullptr, 1, 1,
-                    CUFFT_C2R, 1);
+      cufftPlanMany(&plan_forward_many, 2, n, onembed, 1, odist, inembed, 1,
+                    idist, CUFFT_C2R, 1);
     }
   } else {
     if (forward) {
-      cufftPlanMany(&plan_forward_many, 2, n, nullptr, 1, 1, nullptr, 1, 1,
-                    CUFFT_D2Z, 1);
+      cufftPlanMany(&plan_forward_many, 2, n, inembed, 1, idist, onembed, 1,
+                    odist, CUFFT_D2Z, 1);
     } else {
-      cufftPlanMany(&plan_forward_many, 2, n, nullptr, 1, 1, nullptr, 1, 1,
-                    CUFFT_Z2D, 1);
+      cufftPlanMany(&plan_forward_many, 2, n, onembed, 1, odist, inembed, 1,
+                    idist, CUFFT_Z2D, 1);
     }
   }
 
   // define dimensions
   dim3 threadsPerBlock(32, 32); // 1024 threads
-  dim3 numBlocks(image_width / threadsPerBlock.x + 1,
+  dim3 numBlocks(alignment / threadsPerBlock.x + 1,
                  image_height / threadsPerBlock.y + 1);
 
   // Transform signal
@@ -495,9 +877,9 @@ void fft_transform_device(TPrecision *in, int width, int height, TPrecision *out
 
   if (!forward && scale) {
     // Pointwise Scale
-    ScaleE<<<numBlocks, threadsPerBlock>>>(
-        reinterpret_cast<cufft_Real *>(out), image_width,
-        image_height, 1.0 / (image_height * image_width));
+    ScaleE<<<numBlocks, threadsPerBlock>>>(reinterpret_cast<cufft_Real *>(out),
+                                           alignment, image_height,
+                                           1.0 / (image_height * image_width));
     HANDLE_ERROR(cudaGetLastError());
   }
 
@@ -505,6 +887,8 @@ void fft_transform_device(TPrecision *in, int width, int height, TPrecision *out
   cufftDestroy(plan_forward_many);
 }
 
+// old fft part without device functions
+/*
 // forward FFT
 template <class T, class TPrecision> TPrecision *fft(HipaccImage &in) {
   int width = in->width;
@@ -525,7 +909,7 @@ template <class T, class TPrecision> TPrecision *fft(HipaccImage &in) {
 
   // prepare output buffer
   TPrecision *output = new TPrecision[2 * (width / 2 + 1) * height];
-  fft_transform(input, width, height, output, true);
+  fftTransform(input, width, height, output, true);
 
   free(input);
   free(input_d);
@@ -542,7 +926,7 @@ template <class T, class TPrecision> void ifft(TPrecision *in, HipaccImage &out)
   // prepare output buffer
   TPrecision *output = new TPrecision[width * height];
 
-  fft_transform(in, width, height, output, false, true);
+  fftTransform(in, width, height, output, false, true);
 
   // truncate values outside of range 0-255
   T *out_d = new T[width_out * height];
@@ -565,16 +949,81 @@ template <class T, class TPrecision> void ifft(TPrecision *in, HipaccImage &out)
   free(output);
   free(out_d);
 }
+*/
+
+// new fft part
+
+// forward FFT
+template <class T, class TPrecision> TPrecision *fft(HipaccImage &in) {
+  int width = in->width;
+  int height = in->height;
+  int width_in = alignedWidth<T>(width, in->alignment);
+
+  // prepare output buffer
+  TPrecision *output;
+  cudaMalloc((void **)&output, sizeof(TPrecision) * 2 * (width / 2 + 1) * height);
+  TPrecision *input;
+  if (std::is_same<T, TPrecision>::value) {
+    input = (TPrecision *)(in->mem);
+  } else {
+    gpuErrchk(
+        cudaMalloc((void **)&input, sizeof(TPrecision) * width_in * height));
+    // define dimensions
+    dim3 threadsPerBlock(32, 32); // 1024 threads
+    dim3 numBlocks(width / threadsPerBlock.x + 1, height / threadsPerBlock.y + 1);
+
+    // Pointwise Multiplication in Frequency Domain
+    CopyAligned<<<numBlocks, threadsPerBlock>>>((T *)(in->mem), input, width,
+                                                height, width_in, width_in);
+    HANDLE_ERROR(cudaGetLastError());
+  }
+  fftTransformDevice(input, width, height, output, true, false, width_in);
+  HANDLE_ERROR(cudaGetLastError());
+  return output;
+}
+
+// inverse FFT
+template <class T, class TPrecision> void ifft(TPrecision *in, HipaccImage &out) {
+  int width = out->width;
+  int height = out->height;
+  int width_out = alignedWidth<T>(width, out->alignment);
+
+  // prepare output buffer
+  TPrecision *output;
+  if (std::is_same<T, TPrecision>::value) {
+    output = (TPrecision *)(out->mem);
+  } else {
+    gpuErrchk(
+        cudaMalloc((void **)&output, sizeof(TPrecision) * width_out * height));
+  }
+  fftTransformDevice(in, width, height, output, false, true, width_out);
+
+  if (!std::is_same<T, TPrecision>::value) {
+    // define dimensions
+    dim3 threadsPerBlock(32, 32); // 1024 threads
+    dim3 numBlocks(width / threadsPerBlock.x + 1, height / threadsPerBlock.y + 1);
+
+    // Pointwise Multiplication in Frequency Domain
+    CopyAligned<<<numBlocks, threadsPerBlock>>>(output, (T *)(out->mem), width,
+                                                height, width_out, width_out);
+    HANDLE_ERROR(cudaGetLastError());
+  }
+}
 
 // create magnitude from fft
 template <class T, class TPrecision>
-void fftToMag(TPrecision *in, HipaccImage &mag) {
+void fftToMagnitude(TPrecision *in, HipaccImage &mag) {
   int width = mag->width;
   int height = mag->height;
   int width_out = alignedWidth<T>(width, mag->alignment);
 
   T *tmp = new T[width * height];
-  calcMagnitude(reinterpret_cast<std::complex<TPrecision> *>(in), tmp, width,
+  std::complex<TPrecision> *input =
+      new std::complex<TPrecision>[(width / 2 + 1) * height];
+  gpuErrchk(cudaMemcpy(
+      input, in, sizeof(std::complex<TPrecision>) * (width / 2 + 1) * height,
+      cudaMemcpyDeviceToHost));
+  calcMagnitude(reinterpret_cast<std::complex<TPrecision> *>(input), tmp, width,
                 height);
 
   shiftFFT(tmp, width, height);
@@ -594,7 +1043,7 @@ void fftToMag(TPrecision *in, HipaccImage &mag) {
 
 // create magnitude from dct
 template <class T, class TPrecision>
-void dctToMag(TPrecision *in, HipaccImage &mag) {
+void dctToMagnitude(TPrecision *in, HipaccImage &mag) {
   int width = mag->width;
   int height = mag->height;
   int width_out = alignedWidth<T>(width, mag->alignment);
@@ -634,32 +1083,70 @@ void dctToMag(TPrecision *in, HipaccImage &mag) {
 }
 
 // apply mask mag to result of FFT in
-// and ignore values for frequencies lower than r
 template <class T, class TPrecision>
-void magScaleFFT(TPrecision *in, HipaccImage &mag, float r) {
+void fftScaleMagnitude(TPrecision *in, HipaccImage &mag) {
   int width = mag->width;
   int height = mag->height;
   int width_in = alignedWidth<T>(width, mag->alignment);
   T *scale = new T[width_in * height];
+  std::complex<TPrecision> *input =
+      new std::complex<TPrecision>[(width / 2 + 1) * height];
+  gpuErrchk(cudaMemcpy(
+      input, in, sizeof(std::complex<TPrecision>) * (width / 2 + 1) * height,
+      cudaMemcpyDeviceToHost));
   gpuErrchk(cudaMemcpy(scale, mag->mem, sizeof(T) * width_in * height,
                        cudaMemcpyDeviceToHost));
-
-  magResetLowFreq(scale, width, height, mag->alignment, r, 10);
-  magLowPassFilter(scale, width, height, mag->alignment,
-                   min(width, height) * 0.25, 100);
 
   iShiftFFT(scale, width, height, mag->alignment);
 
   for (int y = 0; y < height; y++) {
     for (int x = 0; x < (width / 2 + 1); x++) {
-      in[(y * (width / 2 + 1) + x) * 2] *=
-          (TPrecision)scale[y * width_in + x] / 255;
-      in[(y * (width / 2 + 1) + x) * 2 + 1] *=
+      input[(y * (width / 2 + 1) + x)] *=
           (TPrecision)scale[y * width_in + x] / 255;
     }
   }
 
+  gpuErrchk(cudaMemcpy(
+      in, input, sizeof(std::complex<TPrecision>) * (width / 2 + 1) * height,
+      cudaMemcpyHostToDevice));
+
   free(scale);
+}
+
+template <class TPrecision>
+void dct_forward_device(TPrecision *in, int width, int height, TPrecision *out,
+                        int width_in = 0) {
+  if (width_in == 0) {
+    width_in = width;
+  }
+  // define dimensions
+  dim3 threadsPerBlock(32, 32); // 1024 threads
+  dim3 numBlocks(width / threadsPerBlock.x + 1, height / threadsPerBlock.y + 1);
+
+  TPrecision *reorder;
+  gpuErrchk(cudaMalloc((void **)&reorder, sizeof(TPrecision) * width * height));
+
+  Reorder<<<numBlocks, threadsPerBlock>>>(in, reorder, width, height, width_in,
+                                          width, height);
+  HANDLE_ERROR(cudaGetLastError());
+
+  // prepare output buffer
+  int out_width = width / 2 + 1;
+  std::complex<TPrecision> *output;
+  gpuErrchk(cudaMalloc((void **)&output,
+                       sizeof(std::complex<TPrecision>) * out_width * height));
+
+  fftTransformDevice(reorder, width, height,
+                     reinterpret_cast<TPrecision *>(output), true, false);
+
+  Factoring<<<numBlocks, threadsPerBlock>>>(
+      reinterpret_cast<complex<TPrecision> *>(output), out, width, height, width,
+      height, out_width);
+  cudaDeviceSynchronize();
+  HANDLE_ERROR(cudaGetLastError());
+
+  cudaFree(reorder);
+  cudaFree(output);
 }
 
 template <class TPrecision, class T>
@@ -689,38 +1176,38 @@ void dct_forward(T *in, int width, int height, TPrecision *out,
   std::complex<TPrecision> *output =
       new std::complex<TPrecision>[out_width * height];
 
-  fft_transform(input, width, height, reinterpret_cast<TPrecision *>(output),
-                true);
+  fftTransform(input, width, height, reinterpret_cast<TPrecision *>(output),
+               true);
 
   const std::complex<TPrecision> i(0.0, 1.0);
   for (int y = 0; y < height; y++) {
     for (int x = 0; x < width / 2 + 1; x++) {
-      std::complex<TPrecision> test =
+      std::complex<TPrecision> factor =
           std::exp(-i * std::complex<TPrecision>(M_PI * y / (2 * height)));
-      std::complex<TPrecision> test2 =
+      std::complex<TPrecision> factor2 =
           std::exp(-i * std::complex<TPrecision>(M_PI * x / (2 * width)));
-      std::complex<TPrecision> test3 =
+      std::complex<TPrecision> factor3 =
           std::exp(-i * std::complex<TPrecision>(M_PI * (-x) / (2 * width)));
-      std::complex<TPrecision> test4 =
+      std::complex<TPrecision> factor4 =
           std::exp(-i * std::complex<TPrecision>(M_PI * (-y) / (2 * height)));
       if (x == 0 && y == 0) {
         out[y * width + x] =
-            4.0 * (test * (test2 * output[y * out_width + x])).real();
+            4.0 * (factor * (factor2 * output[y * out_width + x])).real();
       } else if (x == 0) {
         out[y * width + x] =
-            2.0 * (test2 * (test * output[y * out_width + x] +
-                            test4 * output[(height - y) * out_width + x]))
+            2.0 * (factor2 * (factor * output[y * out_width + x] +
+                              factor4 * output[(height - y) * out_width + x]))
                       .real();
       } else if (y == 0) {
         out[y * width + x] =
-            2.0 * (test * (test2 * output[y * out_width + x] +
-                           test3 * std::conj(output[y * out_width + x])))
+            2.0 * (factor * (factor2 * output[y * out_width + x] +
+                             factor3 * std::conj(output[y * out_width + x])))
                       .real();
       } else {
         out[y * width + x] =
             2.0 *
-            (test * (test2 * output[y * out_width + x] +
-                     test3 * std::conj(output[(height - y) * out_width + x])))
+            (factor * (factor2 * output[y * out_width + x] +
+                       factor3 * std::conj(output[(height - y) * out_width + x])))
                 .real();
       }
     }
@@ -728,36 +1215,38 @@ void dct_forward(T *in, int width, int height, TPrecision *out,
 
   for (int y = 0; y < height; y++) {
     for (int x = width / 2 + 1; x < width; x++) {
-      std::complex<TPrecision> test =
+      std::complex<TPrecision> factor =
           std::exp(-i * std::complex<TPrecision>(M_PI * y / (2 * height)));
-      std::complex<TPrecision> test2 =
+      std::complex<TPrecision> factor2 =
           std::exp(-i * std::complex<TPrecision>(M_PI * x / (2 * width)));
-      std::complex<TPrecision> test3 =
+      std::complex<TPrecision> factor3 =
           std::exp(-i * std::complex<TPrecision>(M_PI * (-x) / (2 * width)));
-      std::complex<TPrecision> test4 =
+      std::complex<TPrecision> factor4 =
           std::exp(-i * std::complex<TPrecision>(M_PI * (-y) / (2 * height)));
       if (x == 0 && y == 0) {
         out[y * width + x] =
-            4.0 * (test * (test2 * std::conj(output[y * out_width + width - x])))
-                      .real();
+            4.0 *
+            (factor * (factor2 * std::conj(output[y * out_width + width - x])))
+                .real();
       } else if (x == 0) {
         out[y * width + x] =
             2.0 *
-            (test2 *
-             (test * std::conj(output[(height - y) * out_width + width - x]) +
-              test4 * std::conj(output[y * out_width + width - x])))
+            (factor2 *
+             (factor * std::conj(output[(height - y) * out_width + width - x]) +
+              factor4 * std::conj(output[y * out_width + width - x])))
                 .real();
       } else if (y == 0) {
         out[y * width + x] =
-            2.0 * (test * (test2 * std::conj(output[y * out_width + width - x]) +
-                           test3 * output[y * out_width + width - x]))
-                      .real();
+            2.0 *
+            (factor * (factor2 * std::conj(output[y * out_width + width - x]) +
+                       factor3 * output[y * out_width + width - x]))
+                .real();
       } else {
         out[y * width + x] =
             2.0 *
-            (test *
-             (test2 * std::conj(output[(height - y) * out_width + width - x]) +
-              test3 * output[y * out_width + width - x]))
+            (factor *
+             (factor2 * std::conj(output[(height - y) * out_width + width - x]) +
+              factor3 * output[y * out_width + width - x]))
                 .real();
       }
     }
@@ -765,6 +1254,42 @@ void dct_forward(T *in, int width, int height, TPrecision *out,
 
   free(input);
   free(output);
+}
+
+template <class T, class TPrecision>
+void dct_inverse_device(TPrecision *in, int width, int height, T *out,
+                        int width_out = 0) {
+  if (width_out == 0) {
+    width_out = width;
+  }
+
+  int in_width = width / 2 + 1;
+
+  // define dimensions
+  dim3 threadsPerBlock(32, 32); // 1024 threads
+  dim3 numBlocks(width_out / threadsPerBlock.x + 1,
+                 height / threadsPerBlock.y + 1);
+
+  // prepare buffers
+  std::complex<TPrecision> *input;
+  gpuErrchk(cudaMalloc((void **)&input,
+                       sizeof(std::complex<TPrecision>) * in_width * height));
+  TPrecision *output;
+  gpuErrchk(cudaMalloc((void **)&output, sizeof(TPrecision) * width * height));
+
+  iFactoring<<<numBlocks, threadsPerBlock>>>(
+      in, reinterpret_cast<complex<TPrecision> *>(input), width, height, width,
+      height);
+  cudaDeviceSynchronize();
+  HANDLE_ERROR(cudaGetLastError());
+
+  fftTransformDevice(reinterpret_cast<TPrecision *>(input), width, height, output,
+                     false, true);
+
+  iReorder<<<numBlocks, threadsPerBlock>>>(output, out, width, height, width_out,
+                                           width, height);
+  cudaDeviceSynchronize();
+  HANDLE_ERROR(cudaGetLastError());
 }
 
 template <class T, class TPrecision>
@@ -782,27 +1307,27 @@ void dct_inverse(TPrecision *in, int width, int height, T *out,
   const std::complex<TPrecision> i(0.0, 1.0);
   for (int y = 0; y < height; y++) {
     for (int x = 0; x < in_width; x++) {
-      std::complex<TPrecision> test3 =
+      std::complex<TPrecision> factor3 =
           std::exp(-i * std::complex<TPrecision>(M_PI * (-x) / (2 * width)));
-      std::complex<TPrecision> test4 =
+      std::complex<TPrecision> factor4 =
           std::exp(-i * std::complex<TPrecision>(M_PI * (-y) / (2 * height)));
       if (x == 0 && y == 0) {
-        input[y * in_width + x] = std::complex<TPrecision>(0.25, 0.0) * test4 *
-                                  test3 *
+        input[y * in_width + x] = std::complex<TPrecision>(0.25, 0.0) * factor4 *
+                                  factor3 *
                                   std::complex<TPrecision>(in[y * width + x]);
       } else if (y == 0) {
         input[y * in_width + x] =
-            std::complex<TPrecision>(0.25, 0.0) * test4 * test3 *
+            std::complex<TPrecision>(0.25, 0.0) * factor4 * factor3 *
             (std::complex<TPrecision>(in[y * width + x]) -
              i * std::complex<TPrecision>(in[y * width + width - x]));
       } else if (x == 0) {
         input[y * in_width + x] =
-            std::complex<TPrecision>(0.25, 0.0) * test4 * test3 *
+            std::complex<TPrecision>(0.25, 0.0) * factor4 * factor3 *
             (std::complex<TPrecision>(in[y * width + x]) -
              i * std::complex<TPrecision>(in[(height - y) * width + x]));
       } else {
         input[y * in_width + x] =
-            std::complex<TPrecision>(0.25, 0.0) * test4 * test3 *
+            std::complex<TPrecision>(0.25, 0.0) * factor4 * factor3 *
             ((std::complex<TPrecision>(in[y * width + x]) -
               std::complex<TPrecision>(in[(height - y) * width + width - x])) -
              i * (std::complex<TPrecision>(in[(height - y) * width + x]) +
@@ -814,8 +1339,8 @@ void dct_inverse(TPrecision *in, int width, int height, T *out,
   // prepare output buffer
   TPrecision *output = new TPrecision[width * height];
 
-  fft_transform(reinterpret_cast<TPrecision *>(input), width, height, output,
-                false, true);
+  fftTransform(reinterpret_cast<TPrecision *>(input), width, height, output,
+               false, true);
 
   for (int y = 0; y < height / 2; y++) {
     for (int x = 0; x < width / 2; x++) {
@@ -834,12 +1359,22 @@ void dct_inverse(TPrecision *in, int width, int height, T *out,
 }
 
 template <class TPrecision>
-void dct_transform(TPrecision *in, int width, int height, TPrecision *out,
-                   bool forward = true) {
+void dctTransform(TPrecision *in, int width, int height, TPrecision *out,
+                  bool forward = true) {
   if (forward) {
     dct_forward(in, width, height, out);
   } else {
     dct_inverse(in, width, height, out);
+  }
+}
+
+template <class TPrecision>
+void dctTransformDevice(TPrecision *in, int width, int height, TPrecision *out,
+                        bool forward = true) {
+  if (forward) {
+    dct_forward_device(in, width, height, out);
+  } else {
+    dct_inverse_device(in, width, height, out);
   }
 }
 
@@ -878,3 +1413,29 @@ template <class T, class TPrecision> void idct(TPrecision *in, HipaccImage &out)
 
   free(out_d);
 }
+
+/*
+template <class T, class TPrecision> TPrecision *dct(HipaccImage &in) {
+  int width = in->width;
+  int height = in->height;
+  int width_in = alignedWidth<T>(width, in->alignment);
+
+  // prepare output buffer
+  TPrecision *output;
+  gpuErrchk(cudaMalloc((void **)&output, sizeof(TPrecision) * width * height));
+  dct_forward_device((TPrecision *)(in->mem), width, height, output, width_in);
+
+  return output;
+}
+
+// inverse FCT
+template <class T, class TPrecision> void idct(TPrecision *in, HipaccImage &out) {
+  int width = out->width;
+  int height = out->height;
+  int width_out = alignedWidth<T>(width, out->alignment);
+
+  //dct_inverse_device(in, width, height, (TPrecision *)(out->mem), width_out);
+  dct_inverse_device(in, 1000, 100, (TPrecision *)(out->mem));
+
+}
+*/
