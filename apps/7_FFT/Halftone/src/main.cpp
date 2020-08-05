@@ -202,7 +202,7 @@ int main(int argc, const char **argv) {
   float *fftResult = (float *)fft<TYPE, float>(in);
 
   // create magnitude from fft
-  fftToMag<TYPE>(fftResult, mag);
+  fftToMagnitude<TYPE>(fftResult, mag);
 
   // blur magnitude
   Domain domBlur(7, 7);
@@ -220,12 +220,14 @@ int main(int argc, const char **argv) {
   GaussianBlur blur_mask(iter_mag_out3, acc_mag_out2, mask5);
   blur_mask.execute();
 
-  // apply mask to fftResult (with radius of highpass filter)
-  magScaleFFT<TYPE>(fftResult, mag_out3, min(width, height) / 20);
+  // apply mask to fftResult
+  fftResetMask<TYPE>(mag_out3, min(width, height) / 20, true, 10);
+  fftApplyPassFilter<TYPE>(mag_out3, min(width, height) * 0.25, true, 100);
+  fftScaleMagnitude<TYPE>(fftResult, mag_out3);
 
   // visualize resulting magnitude
   Image<TYPE> back(width, height);
-  fftToMag<TYPE>(fftResult, back);
+  fftToMagnitude<TYPE>(fftResult, back);
 
   // get result image from inverse fft
   ifft<TYPE>(fftResult, out);

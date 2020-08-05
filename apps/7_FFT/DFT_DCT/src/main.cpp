@@ -29,12 +29,15 @@
 #include <hipacc_helper.hpp>
 #include <iostream>
 
-#define WIDTH 4032
+/*#define WIDTH 4032
 #define HEIGHT 3024
-#define IMAGE "../../common/img/fuerte_ship.jpg"
+#define IMAGE "../../common/img/fuerte_ship.jpg"*/
+#define WIDTH 600
+#define HEIGHT 450
+#define IMAGE "../../common/img/halftone-face.jpg"
 
 #define TYPE float
-#define TYPE2 double
+#define TYPE2 float
 
 using namespace hipacc;
 using namespace hipacc::math;
@@ -63,12 +66,12 @@ int main(int argc, const char **argv) {
   // write fft of in to fftResult
   float *fftResult = (float *)fft<TYPE, float>(in);
   // create magnitude from fft
-  fftToMag<TYPE>(fftResult, out_mag_fft);
+  fftToMagnitude<TYPE>(fftResult, out_mag_fft);
   ifft<TYPE, float>(fftResult, out_fft);
 
   float *dctResult = (float *)dct<TYPE, float>(in);
   // create magnitude from fft
-  dctToMag<TYPE>(dctResult, out_mag_dct);
+  dctToMagnitude<TYPE>(dctResult, out_mag_dct);
   idct<TYPE, float>(dctResult, out_dct);
 
   // get pointer to result data
@@ -90,7 +93,22 @@ int main(int argc, const char **argv) {
   TYPE2 fft[4][(4 / 2 + 1) * 2];
   TYPE2 dct[4][4];
 
-  fft_transform((TYPE2*)test, 4, 4, (TYPE2*)fft);
+  TYPE2 *test_d;
+  TYPE2 *fft_d;
+  TYPE2 *dct_d;
+
+  /*cudaMalloc((void**)&test_d, sizeof(TYPE2) * 4*4);
+  cudaMalloc((void**)&fft_d, sizeof(TYPE2) * 4*(4 / 2 + 1) * 2);
+  cudaMalloc((void**)&dct_d, sizeof(TYPE2) * 4*4);
+  cudaMemcpy(test_d, test, sizeof(TYPE2) * 4*4, cudaMemcpyHostToDevice);
+  cudaMemcpy(fft_d, fft, sizeof(TYPE2) * 4*(4 / 2 + 1) * 2,
+  cudaMemcpyHostToDevice); cudaMemcpy(dct_d, dct, sizeof(TYPE2) * 4*4,
+  cudaMemcpyHostToDevice);
+
+  fft_transform_device(test_d, 4, 4, fft_d);
+
+  cudaMemcpy(fft, fft_d, sizeof(TYPE2) * 4*(4 / 2 + 1) * 2,
+  cudaMemcpyDeviceToHost);
 
   for (int y = 0; y < 4; y++) {
     for (int x = 0; x < (4 / 2 + 1) * 2; x++) {
@@ -100,7 +118,11 @@ int main(int argc, const char **argv) {
   }
   std::cout << std::endl;
 
-  dct_transform((TYPE2*)test, 4, 4, (TYPE2*)dct);
+  dct_transform_device((TYPE2*)test_d, 4, 4, (TYPE2*)dct_d);
+  dct_transform_device((TYPE2*)dct_d, 4, 4, (TYPE2*)test_d, false);
+
+  //cudaMemcpy(dct, dct_d, sizeof(TYPE2) * 4*4, cudaMemcpyDeviceToHost);
+  cudaMemcpy(dct, test_d, sizeof(TYPE2) * 4*4, cudaMemcpyDeviceToHost);*/
 
   for (int y = 0; y < 4; y++) {
     for (int x = 0; x < 4; x++) {
