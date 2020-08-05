@@ -422,7 +422,7 @@ void CreateHostStrings::writeFFTConvolutionCall(HipaccKernel *K,
       resultStr += "fftwConvolution<" + precision + ">(";
       break;
     case Language::CUDA:
-      resultStr += "cufftConvolution<" + precision + ">(";
+      resultStr += "cufftConvolution_device<" + precision + ">(";
       break;
     default:
       assert(false && "Convolution with FFT is only supported for C99 and CUDA");
