@@ -30,18 +30,23 @@
 namespace hipacc {
 
 template <class TPrecision>
-void fft_transform(TPrecision *in, int width, int height, TPrecision *out,
-                     bool forward = true, bool scale = false) {
+void fftTransform(TPrecision *in, int width, int height, TPrecision *out,
+                  bool forward = true, bool scale = false){
 
 };
 template <class TPrecision>
-void fft_transform_device(TPrecision *in, int width, int height, TPrecision *out,
-                          bool forward = true, bool scale = false){
+void fftTransformDevice(TPrecision *in, int width, int height, TPrecision *out,
+                        bool forward = true, bool scale = false){
 
 };
 template <class TPrecision>
-void dct_transform(TPrecision *in, int width, int height, TPrecision *out,
-                   bool forward = true){
+void dctTransform(TPrecision *in, int width, int height, TPrecision *out,
+                  bool forward = true){
+
+};
+template <class TPrecision>
+void dctTransformDevice(TPrecision *in, int width, int height, TPrecision *out,
+                        bool forward = true){
 
 };
 template <class data_t, class TPrecision, class T> TPrecision *fft(Image<T> &in) {
@@ -55,17 +60,35 @@ void ifft(TPrecision *in, Image<T> &out) {
                 "Type of Image and Memory have to be the same!");
 };
 template <class data_t, class TPrecision, class T>
-void fftToMag(TPrecision *in, Image<T> &mag) {
+void fftToMagnitude(TPrecision *in, Image<T> &mag) {
   static_assert(std::is_same<T, data_t>::value,
                 "Type of Image and Memory have to be the same!");
 };
 template <class data_t, class TPrecision, class T>
-void dctToMag(TPrecision *in, Image<T> &mag) {
+void dctToMagnitude(TPrecision *in, Image<T> &mag) {
   static_assert(std::is_same<T, data_t>::value,
                 "Type of Image and Memory have to be the same!");
 };
 template <class data_t, class TPrecision, class T>
-void magScaleFFT(TPrecision *in, Image<T> &mag, float r) {
+void fftScaleMagnitude(TPrecision *in, Image<T> &mag) {
+  static_assert(std::is_same<T, data_t>::value,
+                "Type of Image and Memory have to be the same!");
+};
+template <class data_t, class T>
+void fftResetMask(Image<T> &mag, int radius, bool low, int window = 0) {
+  static_assert(std::is_same<T, data_t>::value,
+                "Type of Image and Memory have to be the same!");
+};
+template <class data_t, class T>
+void fftApplyPassFilter(Image<T> &mag, int radius, bool low, int window = 0) {
+  static_assert(std::is_same<T, data_t>::value,
+                "Type of Image and Memory have to be the same!");
+};
+template <class data_t, class T> void fftShift(Image<T> &mag) {
+  static_assert(std::is_same<T, data_t>::value,
+                "Type of Image and Memory have to be the same!");
+};
+template <class data_t, class T> void ifftShift(Image<T> &mag) {
   static_assert(std::is_same<T, data_t>::value,
                 "Type of Image and Memory have to be the same!");
 };
