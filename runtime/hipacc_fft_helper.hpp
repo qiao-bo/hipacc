@@ -224,17 +224,20 @@ float hannWindow(float N, float x) {
 
 // reset mask values for low frequencies below r with gradient blur of size w
 template <class T>
-void magResetLowFreq(T *image, int width, int height, int alignment, float r,
-                     float w) {
+void magResetFreq(T *image, int width, int height, int alignment, float r,
+                     float w, bool low) {
   int width_align = alignedWidth<T>(width, alignment);
   for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
       int xd = x - width / 2;
       int yd = y - height / 2;
       float d = sqrt(xd * xd + yd * yd);
-      if (d < r) {
+      if (low && d < r) {
         image[y * width_align + x] =
             255 - (255 - image[y * width_align + x]) * (1 - hannWindow(w, r - d));
+      } else if (!low && d > r) {
+        image[y * width_align + x] =
+            255 - (255 - image[y * width_align + x]) * (1 - hannWindow(w, d - r));
       }
     }
   }
@@ -242,16 +245,18 @@ void magResetLowFreq(T *image, int width, int height, int alignment, float r,
 
 // low pass filter for low frequencies below r with gradient blur of size w
 template <class T>
-void magLowPassFilter(T *image, int width, int height, int alignment, int r,
-                      int w) {
+void magPassFilter(T *image, int width, int height, int alignment, int r,
+                      int w, bool low) {
   int width_align = alignedWidth<T>(width, alignment);
   for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
       int xd = x - width / 2;
       int yd = y - height / 2;
       float d = sqrt(xd * xd + yd * yd);
-      if (d > r) {
+      if (low && d > r) {
         image[y * width_align + x] *= (1 - hannWindow(w, d - r));
+      } else if (!low && d<r) {
+        image[y * width_align + x] *= (1 - hannWindow(w, r - d));
       }
     }
   }
