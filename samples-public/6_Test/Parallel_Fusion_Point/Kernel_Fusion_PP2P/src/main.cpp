@@ -58,18 +58,18 @@ class PointOperatorExample : public Kernel<TYPE> {
 class OutOperatorExample : public Kernel<TYPE> {
     private:
         Accessor<TYPE> &in1;
-				Accessor<TYPE> &in2;
+        Accessor<TYPE> &in2;
 
     public:
         OutOperatorExample(IterationSpace<TYPE> &iter, Accessor<TYPE> &acc1, Accessor<TYPE> &acc2)
               : Kernel(iter), in1(acc1), in2(acc2) {
             add_accessor(&in1);
-						add_accessor(&in2);
+            add_accessor(&in2);
         }
 
         void kernel() {
             TYPE interm_pixel1 = in1();
-						TYPE interm_pixel2 = in2();
+            TYPE interm_pixel2 = in2();
             output() = interm_pixel1 + interm_pixel2;
         }
 };
@@ -108,7 +108,7 @@ HIPACC_CODEGEN int main(int argc, const char **argv) {
     PointOperatorExample pointOp1(iter1, acc0);
 
     Accessor<TYPE> acc1(buf0);
-		Accessor<TYPE> acc2(buf1);
+    Accessor<TYPE> acc2(buf1);
     Image<TYPE> buf2(width, height);
     IterationSpace<TYPE> iter2(out);
     OutOperatorExample outOp(iter2, acc1, acc2);
@@ -145,24 +145,24 @@ void point_kernel(TYPE *in, TYPE *out, int width, int height) {
 void out_kernel(TYPE *in1, TYPE *in2, TYPE *out, int width, int height) {
     for (int p = 0; p < width*height; ++p) {
         TYPE interm_pixel1 = in1[p];
-				TYPE interm_pixel2 = in2[p];
+                TYPE interm_pixel2 = in2[p];
         out[p] = interm_pixel1 + interm_pixel2;
     }
 }
 
 void kernel_fusion(TYPE *in, TYPE *out, int width, int height) {
-  TYPE *ref_buf0 = new TYPE[width*height];
-  TYPE *ref_buf1 = new TYPE[width*height];
+    TYPE *ref_buf0 = new TYPE[width*height];
+    TYPE *ref_buf1 = new TYPE[width*height];
 
-	// left operator
-  point_kernel(in, ref_buf0, width, height);
+    // left operator
+    point_kernel(in, ref_buf0, width, height);
 
-	// right operator
-  point_kernel(in, ref_buf1, width, height);
+    // right operator
+    point_kernel(in, ref_buf1, width, height);
 
-	// out operator
-  out_kernel(ref_buf0, ref_buf1, out, width, height);
+    // out operator
+    out_kernel(ref_buf0, ref_buf1, out, width, height);
 
-  delete[] ref_buf0;
-  delete[] ref_buf1;
+    delete[] ref_buf0;
+    delete[] ref_buf1;
 }
