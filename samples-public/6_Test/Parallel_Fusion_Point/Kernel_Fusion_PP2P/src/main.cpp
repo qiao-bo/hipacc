@@ -109,7 +109,6 @@ HIPACC_CODEGEN int main(int argc, const char **argv) {
 
     Accessor<TYPE> acc1(buf0);
     Accessor<TYPE> acc2(buf1);
-    Image<TYPE> buf2(width, height);
     IterationSpace<TYPE> iter2(out);
     OutOperatorExample outOp(iter2, acc1, acc2);
 
@@ -145,7 +144,7 @@ void point_kernel(TYPE *in, TYPE *out, int width, int height) {
 void out_kernel(TYPE *in1, TYPE *in2, TYPE *out, int width, int height) {
     for (int p = 0; p < width*height; ++p) {
         TYPE interm_pixel1 = in1[p];
-                TYPE interm_pixel2 = in2[p];
+        TYPE interm_pixel2 = in2[p];
         out[p] = interm_pixel1 + interm_pixel2;
     }
 }
