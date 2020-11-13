@@ -136,7 +136,7 @@ HIPACC_CODEGEN int main(int argc, const char **argv) {
     Image<TYPE> in(width, height, input);
     Image<TYPE> out(width, height);
 
-    // test parallel local-local to point kernel fusion
+    // test parallel local-point to point kernel fusion
     Mask<float> mask0(coef);
     BoundaryCondition<TYPE> bound0(in, mask0, Boundary::CLAMP);
     Accessor<TYPE> acc0(bound0);
