@@ -774,7 +774,6 @@ void HostDataDeps::generateSchedule() {
     std::cout << "  Host Data Dependence Graph: " << std::endl;
     dump(applicationGraph);
   }
-  dump(applicationGraph);
 }
 
 // cuda graph helpers
