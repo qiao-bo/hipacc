@@ -656,13 +656,15 @@ void HostDataDeps::generateSchedule() {
     std::cout << "  Host Data Dependence Graph: " << std::endl;
     dump(applicationGraph);
   }
+  dump(applicationGraph);
 }
 
-
 // detect simple linear producer-consumer data dependence
-void HostDataDeps::fusibilityAnalysisLinear() {
+void HostDataDeps::fusibilityAnalysisLinear(bool parallel) {
   partitionBlock workingBlock;
+  partitionBlock workingBlockParallel;
   partitionBlock readyBlock;
+
   for (auto pL : applicationGraph) {
     Process* producerP = pL->front();
     KernelType KT = producerP->getKernel()->getKernelClass()->getKernelType();
@@ -670,7 +672,25 @@ void HostDataDeps::fusibilityAnalysisLinear() {
     if (pL->size() == 2 && (KT == PointOperator || KT == LocalOperator)) {
       workingBlock.push_back(pL);
     }
+    if (pL->size() > 2 && (KT == PointOperator)) {
+      bool consider = true;
+      for (auto p : *pL) {
+        // for every consumer
+        if (p != producerP) {
+          KernelType consumerKt = p->getKernel()->getKernelClass()->getKernelType();
+          if (consumerKt != PointOperator) {
+            consider = false; // do not consider lists with non-point consumers
+            break;
+          }
+        }
+      }
+
+      if (consider) {
+        workingBlockParallel.push_back(pL);
+      }
+    }
   }
+
   for (auto pL : workingBlock) {
     Process* consumerP = pL->back();
     KernelType KT = consumerP->getKernel()->getKernelClass()->getKernelType();
@@ -713,6 +733,86 @@ void HostDataDeps::fusibilityAnalysisLinear() {
       }
     }
   }
+
+  
+  std::map<Process*, partitionBlock*> readyMapParallel;
+
+  for (auto pL : workingBlock) {
+    Process* producerP = pL->front();
+    Process* consumerP = pL->back();
+
+    KernelType producerKT = producerP->getKernel()->getKernelClass()->getKernelType();
+    KernelType consumerKT = consumerP->getKernel()->getKernelClass()->getKernelType();
+
+    if (producerKT != PointOperator || consumerKT != PointOperator) {
+      // only support point operators
+      continue;
+    }
+    if (readyMapParallel.find(consumerP) != readyMapParallel.end()) {
+      // if respective chunk is already in map, ignore it
+      continue;
+    }
+    
+    partitionBlock* parallelBlock = new partitionBlock; 
+    Space* lastParallelInSpace = nullptr;
+
+    for (auto poL : applicationGraph) {
+      if (pL == poL) {
+        // Only consider distinct lists
+        continue;
+      }
+      
+      Process* innerProducerP = poL->front();
+      Process* innerConsumerP = poL->back();
+
+      KernelType innerProducerKT = innerProducerP->getKernel()->getKernelClass()->getKernelType();
+      KernelType innerConsumerKT = innerConsumerP->getKernel()->getKernelClass()->getKernelType();
+
+      if (
+        poL->size() == 2 &&
+        innerProducerKT == PointOperator &&
+        innerConsumerKT == PointOperator &&
+        innerConsumerP == consumerP
+      ) {
+        std::vector<Space*> inSpaces = innerProducerP->getInSpaces();
+        if (inSpaces.size() == 1) {
+          Space* inSpace = inSpaces.front();
+          if (lastParallelInSpace == nullptr) {
+            lastParallelInSpace = inSpace;
+          }
+          if (lastParallelInSpace == inSpace) {
+            parallelBlock->push_back(poL);
+          }
+        }
+      }
+    }
+
+    if (!parallelBlock->empty()) {
+      parallelBlock->push_back(pL);
+      bool isParallelyFusible = true;
+      for (Space* inSpace : consumerP->getInSpaces()) {
+        Process* srcP = inSpace->getSrcProcess();
+        bool found = std::find_if(
+          parallelBlock->begin(),
+          parallelBlock->end(),
+          [srcP](std::list<Process*>* e) {
+            return e->front() == srcP;
+          }
+        ) != parallelBlock->end();
+
+        // external input to consumer
+        if (!found) {
+          isParallelyFusible = false;
+          break;
+        }
+      }
+      if (isParallelyFusible) {
+        readyMapParallel[consumerP] = parallelBlock;
+      }
+    }
+  }
+
+  // At this point, readyMapParallel contains all parallely fusible blocks (as values)
 
   // group all fusible pairs into partition blocks
   std::set<partitionBlock*> readySet;
@@ -806,6 +906,29 @@ void HostDataDeps::fusibilityAnalysisLinear() {
       }
       llvm::errs() << "] \n";
       fusibleSetNames.insert(PBNam);
+    }
+  }
+
+  // convert readyMapParallel to fusibleSetNamesParallel
+  if (parallel && !readyMapParallel.empty()) {
+    llvm::errs() << "[Kernel Fusion INFO] fusible kernels from parallel analysis:\n";
+    for (auto it = readyMapParallel.begin(); it != readyMapParallel.end(); ++it) {
+      partitionBlock* pB = it->second;
+      partitionBlockNames PBNam;
+      llvm::errs() << " [ ";
+      for (auto pL : *pB) {
+        llvm::errs() << "{";
+        std::list<std::string> lNam;
+        for (auto p : *pL) {
+          std::string kname = p->getKernel()->getName();
+          llvm::errs() << " --> " << kname;
+          lNam.push_back(kname);
+        }
+        llvm::errs() << "} ";
+        PBNam.push_back(lNam);
+      }
+      llvm::errs() << "] \n";
+      fusibleSetNamesParallel.insert(PBNam);
     }
   }
 }

@@ -152,6 +152,7 @@ class HostDataDeps : public ManagedAnalysis {
     partitionBlock applicationGraph;
     using partitionBlockNames = std::vector<std::list<std::string>>;
     std::set<partitionBlockNames> fusibleSetNames;
+    std::set<partitionBlockNames> fusibleSetNamesParallel;
     using edgeWeight = std::map<std::pair<Process *, Process *>, unsigned>;
     edgeWeight edgeWeightMap_;
 
@@ -465,7 +466,7 @@ class HostDataDeps : public ManagedAnalysis {
     // kernel fusion analysis
     void computeGraphWeight();
     void fusibilityAnalysis();
-    void fusibilityAnalysisLinear();
+    void fusibilityAnalysisLinear(bool parallel = false);
     void minCutGlobal(partitionBlock PB, partitionBlock &PBRet0, partitionBlock &PBRet1);
     unsigned minCutPhase(partitionBlock &PB, edgeWeight &curEdgeWeightMap,
         std::pair<Process *, Process *> &ST);
