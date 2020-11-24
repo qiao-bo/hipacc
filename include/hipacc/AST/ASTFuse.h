@@ -117,6 +117,7 @@ class ASTFuse {
     };
     std::map<HipaccKernel *, FusionTypeTags *> FusibleKernelSubListPosMap;
     std::map<std::string, std::tuple<unsigned, unsigned>> FusibleKernelBlockLocation;
+    std::set<std::vector<std::list<std::string>>> fusibleSetNamesParallel;
     std::set<std::vector<std::list<std::string>>> fusibleSetNames;
     std::vector<std::list<HipaccKernel*> *> fusibleKernelSet;
 
@@ -151,6 +152,7 @@ class ASTFuse {
       fusionIdxVarCount(0)
       {
         fusibleSetNames = dataDeps->getFusibleSetNames();
+        fusibleSetNamesParallel = dataDeps->getFusibleSetNamesParallel();
 
         // unpack fusible kernel info, one kernel per PB
         // TODO, merge parallel kernels

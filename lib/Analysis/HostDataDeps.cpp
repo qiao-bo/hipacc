@@ -1319,6 +1319,10 @@ std::set<HostDataDeps::partitionBlockNames> HostDataDeps::getFusibleSetNames() c
   return fusibleSetNames;
 }
 
+std::set<HostDataDeps::partitionBlockNames> HostDataDeps::getFusibleSetNamesParallel() const {
+  return fusibleSetNamesParallel;
+}
+
 bool HostDataDeps::isFusible(HipaccKernel *K) {
   bool isFusible = false;
   std::string fullName = K->getKernelClass()->getName() + K->getName();

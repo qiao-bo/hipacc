@@ -478,6 +478,7 @@ class HostDataDeps : public ManagedAnalysis {
     bool isSrc(Process *P);
     bool isDest(Process *P);
     std::set<partitionBlockNames> getFusibleSetNames() const;
+    std::set<partitionBlockNames> getFusibleSetNamesParallel() const;
 
     static HostDataDeps *parse(ASTContext &Context,
         AnalysisDeclContext &analysisContext,
