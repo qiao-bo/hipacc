@@ -56,88 +56,95 @@ void ASTFuse::insertEpilogFusedKernel() {
 
 
 void ASTFuse::markKernelPositionSublist(std::list<HipaccKernel *> *l) {
+  FusionType fusionType = getFusionTypeFor(l);
+
   // initialize kernel location tags
   for (auto K : *l) {
-    FusionTypeTags *tags = new FusionTypeTags;
+    FusionTypeTags *tags = new FusionTypeTags(fusionType);
     FusibleKernelSubListPosMap[K] = tags;
   }
 
-  // sub-list indexing
-  auto itSrc = l->begin();
-  auto itLastLocal = l->begin();
-  for (auto it = l->begin(); it != l->end(); ++it) {
-    HipaccKernelClass *KC = (*it)->getKernelClass();
-    // local to local fusion, e.g., l -> l
-    if ((KC->getKernelType() == LocalOperator) && (it == itSrc) && (l->size() == 2) &&
-        (l->back()->getKernelClass()->getKernelType() == LocalOperator)) {
-      FusionTypeTags *PKTag = FusibleKernelSubListPosMap[l->front()];
-      PKTag->Local2LocalLoc = Source;
-      FusionTypeTags *CKTag = FusibleKernelSubListPosMap[l->back()];
-      CKTag->Local2LocalLoc = Destination;
-      break;
-    }
+  if (fusionType == FusionType::Linear) {
+    // sub-list indexing
+    auto itSrc = l->begin();
+    auto itLastLocal = l->begin();
+    for (auto it = l->begin(); it != l->end(); ++it) {
+      HipaccKernelClass *KC = (*it)->getKernelClass();
+      // local to local fusion, e.g., l -> l
+      if ((KC->getKernelType() == LocalOperator) && (it == itSrc) && (l->size() == 2) &&
+          (l->back()->getKernelClass()->getKernelType() == LocalOperator)) {
+        FusionTypeTags *PKTag = FusibleKernelSubListPosMap[l->front()];
+        PKTag->Local2LocalLoc = Source;
+        FusionTypeTags *CKTag = FusibleKernelSubListPosMap[l->back()];
+        CKTag->Local2LocalLoc = Destination;
+        break;
+      }
 
-    if ((KC->getKernelType() == LocalOperator) && (it != itSrc)) {
-      // first search all the local kernels in the list
-      // point to local fusion, e.g., p -> p -> ... -> l
-      for (auto itSub = itSrc; itSub != it; ++itSub) {
-        HipaccKernel *K = *itSub;
-        FusionTypeTags *KTag = FusibleKernelSubListPosMap[K];
-        if (itSub == itSrc) {
-          KTag->Point2LocalLoc = Source;
+      if ((KC->getKernelType() == LocalOperator) && (it != itSrc)) {
+        // first search all the local kernels in the list
+        // point to local fusion, e.g., p -> p -> ... -> l
+        for (auto itSub = itSrc; itSub != it; ++itSub) {
+          HipaccKernel *K = *itSub;
+          FusionTypeTags *KTag = FusibleKernelSubListPosMap[K];
+          if (itSub == itSrc) {
+            KTag->Point2LocalLoc = Source;
+          } else {
+            KTag->Point2LocalLoc = Intermediate;
+          }
+        }
+        HipaccKernel *KL = *it;
+        FusionTypeTags *KTagL = FusibleKernelSubListPosMap[KL];
+        KTagL->Point2LocalLoc = Destination;
+        itSrc = std::next(it);
+        itLastLocal = it;
+      } else if (std::next(it) == l->end()) {
+        // after found all the local kernels in the list
+        // trace back to perform point-based kernels
+        HipaccKernelClass *KC = (*itLastLocal)->getKernelClass();
+        if (KC->getKernelType() == LocalOperator) {
+          // local to point fusion, e.g., l -> p -> ... -> p
+          for (auto itSub = itLastLocal; itSub != l->end(); ++itSub) {
+            HipaccKernel *K = *itSub;
+            FusionTypeTags *KTag = FusibleKernelSubListPosMap[K];
+            if (itSub == itLastLocal) {
+              KTag->Local2PointLoc = Source;
+            } else if (std::next(itSub) == l->end()) {
+              KTag->Local2PointLoc = Destination;
+            } else {
+              KTag->Local2PointLoc = Intermediate;
+            }
+          }
         } else {
-          KTag->Point2LocalLoc = Intermediate;
-        }
-      }
-      HipaccKernel *KL = *it;
-      FusionTypeTags *KTagL = FusibleKernelSubListPosMap[KL];
-      KTagL->Point2LocalLoc = Destination;
-      itSrc = std::next(it);
-      itLastLocal = it;
-    } else if (std::next(it) == l->end()) {
-      // after found all the local kernels in the list
-      // trace back to perform point-based kernels
-      HipaccKernelClass *KC = (*itLastLocal)->getKernelClass();
-      if (KC->getKernelType() == LocalOperator) {
-        // local to point fusion, e.g., l -> p -> ... -> p
-        for (auto itSub = itLastLocal; itSub != l->end(); ++itSub) {
-          HipaccKernel *K = *itSub;
-          FusionTypeTags *KTag = FusibleKernelSubListPosMap[K];
-          if (itSub == itLastLocal) {
-            KTag->Local2PointLoc = Source;
-          } else if (std::next(itSub) == l->end()) {
-            KTag->Local2PointLoc = Destination;
-          } else {
-            KTag->Local2PointLoc = Intermediate;
-          }
-        }
-      } else {
-        // point to point fusion, e.g., p -> p -> ... -> p
-        for (auto itSub = itLastLocal; itSub != l->end(); ++itSub) {
-          HipaccKernel *K = *itSub;
-          FusionTypeTags *KTag = FusibleKernelSubListPosMap[K];
-          if (itSub == itLastLocal) {
-            KTag->Point2PointLoc = Source;
-          } else if (std::next(itSub) == l->end()) {
-            KTag->Point2PointLoc = Destination;
-          } else {
-            KTag->Point2PointLoc = Intermediate;
+          // point to point fusion, e.g., p -> p -> ... -> p
+          for (auto itSub = itLastLocal; itSub != l->end(); ++itSub) {
+            HipaccKernel *K = *itSub;
+            FusionTypeTags *KTag = FusibleKernelSubListPosMap[K];
+            if (itSub == itLastLocal) {
+              KTag->Point2PointLoc = Source;
+            } else if (std::next(itSub) == l->end()) {
+              KTag->Point2PointLoc = Destination;
+            } else {
+              KTag->Point2PointLoc = Intermediate;
+            }
           }
         }
       }
     }
-  }
 
-  if (DEBUG) {
-    std::cout << "[Kernel Fusion INFO] fusible sublist position:\n";
-    for (auto K : *l) {
-      FusionTypeTags *tags = FusibleKernelSubListPosMap[K];
-      std::cout << " " << K->getKernelClass()->getName() + K->getName() << ":";
-      std::cout << " Point2PointLoc(" << tags->Point2PointLoc << "),";
-      std::cout << " Local2PointLoc(" << tags->Local2PointLoc << "),";
-      std::cout << " Point2LocalLoc(" << tags->Point2LocalLoc << "),";
-      std::cout << " Local2LocalLoc(" << tags->Local2LocalLoc << ")\n";
+    if (DEBUG) {
+      std::cout << "[Kernel Fusion INFO] fusible sublist position:\n";
+      for (auto K : *l) {
+        FusionTypeTags *tags = FusibleKernelSubListPosMap[K];
+        std::cout << " " << K->getKernelClass()->getName() + K->getName() << ":";
+        std::cout << " Point2PointLoc(" << tags->Point2PointLoc << "),";
+        std::cout << " Local2PointLoc(" << tags->Local2PointLoc << "),";
+        std::cout << " Point2LocalLoc(" << tags->Point2LocalLoc << "),";
+        std::cout << " Local2LocalLoc(" << tags->Local2LocalLoc << ")\n";
+      }
     }
+  } else if (fusionType == FusionType::Parallel) {
+    // TODO
+    hipacc_require(false, "Parallel fusion is not yet implemented");
   }
 }
 
@@ -211,6 +218,9 @@ void ASTFuse::initKernelFusion() {
 
 void ASTFuse::HipaccFusion(std::list<HipaccKernel *> *l) {
   hipacc_require((l->size() >=2), "at least two kernels shoud be recorded for fusion");
+  
+  FusionType fusionType = getFusionTypeFor(l);
+
   initKernelFusion();
   curFusedKernelDecl = createFusedKernelDecl(l);
   createGidVarDecl();
@@ -245,140 +255,145 @@ void ASTFuse::HipaccFusion(std::list<HipaccKernel *> *l) {
     ASTTranslate *Hipacc = new ASTTranslate(Ctx, kernelDecl, K, KC,
         builtins, compilerOptions);
 
-    // Point-to-Point Transformation
-    switch(KTag->Point2PointLoc) {
-      default:
-				break;
-      case Source:
-        if (DEBUG) { std::cout << "P2P source generate"; }
-        hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
-        createReg4FusionVarDecl(KC->getOutField()->getType());
-        Hipacc->setFusionP2PSrcOperator(fusionRegVarDecls.back());
-        curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
-        break;
-      case Destination:
-        if (DEBUG) { std::cout << "P2P Destination generate"; }
-        hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
-        Hipacc->setFusionP2PDestOperator(fusionRegVarDecls.back());
-        curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
-        break;
-      case Intermediate:
-        if (DEBUG) { std::cout << "P2P Intermediate generate"; }
-        hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
-        VarDecl *VDIn = fusionRegVarDecls.back();
-        createReg4FusionVarDecl(KC->getOutField()->getType());
-        VarDecl *VDOut = fusionRegVarDecls.back();
-        Hipacc->setFusionP2PIntermOperator(VDIn, VDOut);
-        curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
-        break;
-    }
-
-    // Local-to-Point Transformation
-    switch(KTag->Local2PointLoc) {
-      default:
-				break;
-      case Source:
-        hipacc_require(KernelType == LocalOperator, "Mismatch kernel type for fusion");
-        if (DEBUG) { std::cout << "L2P source generate"; }
-        if (dataDeps->hasSharedIS(K)) {
+    if (fusionType == FusionType::Linear) {
+      // Point-to-Point Transformation
+      switch(KTag->Point2PointLoc) {
+        default:
+          break;
+        case Source:
+          if (DEBUG) { std::cout << "P2P source generate"; }
+          hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
           createReg4FusionVarDecl(KC->getOutField()->getType());
-          regVDSImg = fusionRegVarDecls.back();
-        }
-        createReg4FusionVarDecl(KC->getOutField()->getType());
-        Hipacc->setFusionP2PSrcOperator(fusionRegVarDecls.back());
-        curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
-        if (dataDeps->hasSharedIS(K)) {
-          fusionRegSharedStmts.push_back(Hipacc->getFusionSharedInputStmt(regVDSImg));
-        }
-        break;
-      case Destination:
-        hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
-        if (DEBUG) { std::cout << "L2P Destination generate"; }
-        if (dataDeps->hasSharedIS(K)) {
-          Hipacc->setFusionL2PDestOperator(fusionRegVarDecls.back(), regVDSImg,
-              dataDeps->getSharedISName(K));
-        } else {
+          Hipacc->setFusionP2PSrcOperator(fusionRegVarDecls.back());
+          curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
+          break;
+        case Destination:
+          if (DEBUG) { std::cout << "P2P Destination generate"; }
+          hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
           Hipacc->setFusionP2PDestOperator(fusionRegVarDecls.back());
-        }
-        curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
-        break;
-      case Intermediate:
-        hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
-        if (DEBUG) { std::cout << "L2P Intermediate generate"; }
-        VarDecl *VDIn = fusionRegVarDecls.back();
-        createReg4FusionVarDecl(KC->getOutField()->getType());
-        VarDecl *VDOut = fusionRegVarDecls.back();
-        if (dataDeps->hasSharedIS(K)) {
-          Hipacc->setFusionL2PIntermOperator(VDIn, VDOut, regVDSImg, dataDeps->getSharedISName(K));
-        } else {
+          curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
+          break;
+        case Intermediate:
+          if (DEBUG) { std::cout << "P2P Intermediate generate"; }
+          hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
+          VarDecl *VDIn = fusionRegVarDecls.back();
+          createReg4FusionVarDecl(KC->getOutField()->getType());
+          VarDecl *VDOut = fusionRegVarDecls.back();
           Hipacc->setFusionP2PIntermOperator(VDIn, VDOut);
-        }
-        curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
-        break;
-    }
+          curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
+          break;
+      }
 
-    // Point-to-Local Transformation
-    switch(KTag->Point2LocalLoc) {
-      default:
-				break;
-      case Source:
-        hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
-        if (DEBUG) { std::cout << "P2L source generate"; }
-        createIdx4FusionVarDecl();
-        createReg4FusionVarDecl(KC->getOutField()->getType());
-        Hipacc->setFusionP2LSrcOperator(fusionRegVarDecls.back(), fusionIdxVarDecls.back());
-        vecProducerP2LBody.clear();
-        vecProducerP2LBody.push_back(Hipacc->Hipacc(KC->getKernelFunction()->getBody()));
-        break;
-      case Destination:
-        hipacc_require(KernelType == LocalOperator, "Mismatch kernel type for fusion");
-        if (DEBUG) { std::cout << "P2L Destination generate"; }
-        Hipacc->setFusionP2LDestOperator(fusionRegVarDecls.back(), fusionIdxVarDecls.back(),
-                                createCompoundStmt(Ctx, vecProducerP2LBody));
-        curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
-        break;
-      case Intermediate:
-        hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
-        if (DEBUG) { std::cout << "P2L Intermediate generate"; }
-        VarDecl *VDIn = fusionRegVarDecls.back();
-        createReg4FusionVarDecl(KC->getOutField()->getType());
-        VarDecl *VDOut = fusionRegVarDecls.back();
-        Hipacc->setFusionP2PIntermOperator(VDIn, VDOut);
-        vecProducerP2LBody.push_back(Hipacc->Hipacc(KC->getKernelFunction()->getBody()));
-        break;
-    }
+      // Local-to-Point Transformation
+      switch(KTag->Local2PointLoc) {
+        default:
+          break;
+        case Source:
+          hipacc_require(KernelType == LocalOperator, "Mismatch kernel type for fusion");
+          if (DEBUG) { std::cout << "L2P source generate"; }
+          if (dataDeps->hasSharedIS(K)) {
+            createReg4FusionVarDecl(KC->getOutField()->getType());
+            regVDSImg = fusionRegVarDecls.back();
+          }
+          createReg4FusionVarDecl(KC->getOutField()->getType());
+          Hipacc->setFusionP2PSrcOperator(fusionRegVarDecls.back());
+          curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
+          if (dataDeps->hasSharedIS(K)) {
+            fusionRegSharedStmts.push_back(Hipacc->getFusionSharedInputStmt(regVDSImg));
+          }
+          break;
+        case Destination:
+          hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
+          if (DEBUG) { std::cout << "L2P Destination generate"; }
+          if (dataDeps->hasSharedIS(K)) {
+            Hipacc->setFusionL2PDestOperator(fusionRegVarDecls.back(), regVDSImg,
+                dataDeps->getSharedISName(K));
+          } else {
+            Hipacc->setFusionP2PDestOperator(fusionRegVarDecls.back());
+          }
+          curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
+          break;
+        case Intermediate:
+          hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
+          if (DEBUG) { std::cout << "L2P Intermediate generate"; }
+          VarDecl *VDIn = fusionRegVarDecls.back();
+          createReg4FusionVarDecl(KC->getOutField()->getType());
+          VarDecl *VDOut = fusionRegVarDecls.back();
+          if (dataDeps->hasSharedIS(K)) {
+            Hipacc->setFusionL2PIntermOperator(VDIn, VDOut, regVDSImg, dataDeps->getSharedISName(K));
+          } else {
+            Hipacc->setFusionP2PIntermOperator(VDIn, VDOut);
+          }
+          curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
+          break;
+      }
 
-    // Local-to-Local Transformation
-    switch(KTag->Local2LocalLoc) {
-      default:
-				break;
-      case Source:
-        hipacc_require(KernelType == LocalOperator, "Mismatch kernel type for fusion");
-        if (DEBUG) { std::cout << "L2L source generate"; }
-        createReg4FusionVarDecl(KC->getOutField()->getType());
-        createIdx4FusionVarDecl();
-        idxXFused = fusionIdxVarDecls.back();
-        createIdx4FusionVarDecl();
-        idxYFused = fusionIdxVarDecls.back();
-        Hipacc->setFusionL2LSrcOperator(fusionRegVarDecls.back(), idxXFused, idxYFused,
+      // Point-to-Local Transformation
+      switch(KTag->Point2LocalLoc) {
+        default:
+          break;
+        case Source:
+          hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
+          if (DEBUG) { std::cout << "P2L source generate"; }
+          createIdx4FusionVarDecl();
+          createReg4FusionVarDecl(KC->getOutField()->getType());
+          Hipacc->setFusionP2LSrcOperator(fusionRegVarDecls.back(), fusionIdxVarDecls.back());
+          vecProducerP2LBody.clear();
+          vecProducerP2LBody.push_back(Hipacc->Hipacc(KC->getKernelFunction()->getBody()));
+          break;
+        case Destination:
+          hipacc_require(KernelType == LocalOperator, "Mismatch kernel type for fusion");
+          if (DEBUG) { std::cout << "P2L Destination generate"; }
+          Hipacc->setFusionP2LDestOperator(fusionRegVarDecls.back(), fusionIdxVarDecls.back(),
+                                  createCompoundStmt(Ctx, vecProducerP2LBody));
+          curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
+          break;
+        case Intermediate:
+          hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
+          if (DEBUG) { std::cout << "P2L Intermediate generate"; }
+          VarDecl *VDIn = fusionRegVarDecls.back();
+          createReg4FusionVarDecl(KC->getOutField()->getType());
+          VarDecl *VDOut = fusionRegVarDecls.back();
+          Hipacc->setFusionP2PIntermOperator(VDIn, VDOut);
+          vecProducerP2LBody.push_back(Hipacc->Hipacc(KC->getKernelFunction()->getBody()));
+          break;
+      }
+
+      // Local-to-Local Transformation
+      switch(KTag->Local2LocalLoc) {
+        default:
+          break;
+        case Source:
+          hipacc_require(KernelType == LocalOperator, "Mismatch kernel type for fusion");
+          if (DEBUG) { std::cout << "L2L source generate"; }
+          createReg4FusionVarDecl(KC->getOutField()->getType());
+          createIdx4FusionVarDecl();
+          idxXFused = fusionIdxVarDecls.back();
+          createIdx4FusionVarDecl();
+          idxYFused = fusionIdxVarDecls.back();
+          Hipacc->setFusionL2LSrcOperator(fusionRegVarDecls.back(), idxXFused, idxYFused,
+              std::get<1>(localKernelMemorySizeMap[K]));
+          Hipacc->Hipacc(KC->getKernelFunction()->getBody());
+          stmtsL2LProducerKernel = Hipacc->getFusionLocalKernelBody();
+          KLocalSrc = K;
+          break;
+        case Destination:
+          hipacc_require(KernelType == LocalOperator, "Mismatch kernel type for fusion");
+          if (DEBUG) { std::cout << "L2L Destination generate"; }
+          Hipacc->setFusionL2LDestOperator(stmtsL2LProducerKernel,
+            fusionRegVarDecls.back(), idxXFused, idxYFused,
             std::get<1>(localKernelMemorySizeMap[K]));
-        Hipacc->Hipacc(KC->getKernelFunction()->getBody());
-        stmtsL2LProducerKernel = Hipacc->getFusionLocalKernelBody();
-        KLocalSrc = K;
-        break;
-      case Destination:
-        hipacc_require(KernelType == LocalOperator, "Mismatch kernel type for fusion");
-        if (DEBUG) { std::cout << "L2L Destination generate"; }
-        Hipacc->setFusionL2LDestOperator(stmtsL2LProducerKernel,
-          fusionRegVarDecls.back(), idxXFused, idxYFused,
-          std::get<1>(localKernelMemorySizeMap[K]));
-        Hipacc->Hipacc(KC->getKernelFunction()->getBody());
-        stmtsL2LConsumerKernel = Hipacc->getFusionLocalKernelBody();
-        Local2LocalEndInsertion = true;
-        break;
-      case Intermediate:
-        hipacc_require(0, "Only two local kernels can be fused");
-        break;
+          Hipacc->Hipacc(KC->getKernelFunction()->getBody());
+          stmtsL2LConsumerKernel = Hipacc->getFusionLocalKernelBody();
+          Local2LocalEndInsertion = true;
+          break;
+        case Intermediate:
+          hipacc_require(0, "Only two local kernels can be fused");
+          break;
+      }
+    } else if (fusionType == FusionType::Parallel) {
+      // TODO
+      hipacc_require(false, "Parallel Fusion is not yet implemented");
     }
 
     if (curFusionBody) {

@@ -109,16 +109,19 @@ class ASTFuse {
       Undefined
     };
 
+    enum class FusionType {
+      Linear,
+      Parallel
+    };
+
     struct FusionTypeTags {
       SubListPosition Point2PointLoc = Undefined;
       SubListPosition Local2PointLoc = Undefined;
       SubListPosition Point2LocalLoc = Undefined;
       SubListPosition Local2LocalLoc = Undefined;
-    };
+      FusionType fusionType;
 
-    enum class FusionType {
-      Linear,
-      Parallel
+      FusionTypeTags(FusionType fusionType) : fusionType(fusionType) {}
     };
 
     struct KernelListLocation {
