@@ -486,6 +486,26 @@ class HostDataDeps : public ManagedAnalysis {
     std::string getMemcpyNodeName(std::string imgDst, std::string imgSrc, std::string direction);
     std::string getKernelNodeName(std::string kernelName);
 
+    // helper to convert a partitionBlock to a block of the respective kernel names
+    static partitionBlockNames convertToNames(partitionBlock* pB) {
+      partitionBlockNames PBNam;
+      llvm::errs() << " [ ";
+      for (auto pL : *pB) {
+        llvm::errs() << "{";
+        std::list<std::string> lNam;
+        for (auto p : *pL) {
+          std::string kname = p->getKernel()->getName();
+          llvm::errs() << " --> " << kname;
+          lNam.push_back(kname);
+        }
+        llvm::errs() << "} ";
+        PBNam.push_back(lNam);
+      }
+      llvm::errs() << "] \n";
+
+      return PBNam;
+    }
+
     // kernel fusion analysis
     void computeGraphWeight();
     void fusibilityAnalysis();

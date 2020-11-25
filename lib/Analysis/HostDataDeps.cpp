@@ -1131,20 +1131,7 @@ void HostDataDeps::fusibilityAnalysisLinear(bool parallel) {
   if (!readySet.empty()) {
     llvm::errs() << "[Kernel Fusion INFO] fusible kernels from linear analysis:\n";
     for (auto pB : readySet) {
-      partitionBlockNames PBNam;
-      llvm::errs() << " [ ";
-      for (auto pL : *pB) {
-        llvm::errs() << "{";
-        std::list<std::string> lNam;
-        for (auto p : *pL) {
-          std::string kname = p->getKernel()->getName();
-          llvm::errs() << " --> " << kname;
-          lNam.push_back(kname);
-        }
-        llvm::errs() << "} ";
-        PBNam.push_back(lNam);
-      }
-      llvm::errs() << "] \n";
+      partitionBlockNames PBNam(convertToNames(pB));
       fusibleSetNames.insert(PBNam);
     }
   }
@@ -1154,20 +1141,7 @@ void HostDataDeps::fusibilityAnalysisLinear(bool parallel) {
     llvm::errs() << "[Kernel Fusion INFO] fusible kernels from parallel analysis:\n";
     for (auto it = readyMapParallel.begin(); it != readyMapParallel.end(); ++it) {
       partitionBlock* pB = it->second;
-      partitionBlockNames PBNam;
-      llvm::errs() << " [ ";
-      for (auto pL : *pB) {
-        llvm::errs() << "{";
-        std::list<std::string> lNam;
-        for (auto p : *pL) {
-          std::string kname = p->getKernel()->getName();
-          llvm::errs() << " --> " << kname;
-          lNam.push_back(kname);
-        }
-        llvm::errs() << "} ";
-        PBNam.push_back(lNam);
-      }
-      llvm::errs() << "] \n";
+      partitionBlockNames PBNam(convertToNames(pB));
       fusibleSetNamesParallel.insert(PBNam);
     }
   }
