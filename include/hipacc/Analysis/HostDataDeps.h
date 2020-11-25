@@ -557,7 +557,7 @@ class HostDataDeps : public ManagedAnalysis {
       DependencyTracker DT(Context, Policy, analysisContext, compilerClasses, dataDeps);
       dataDeps.generateSchedule();
       if (dataDeps.compilerOptions->fuseKernels()) {
-        dataDeps.fusibilityAnalysisLinear();
+        dataDeps.fusibilityAnalysisLinear(true);
       }
       if (dataDeps.compilerOptions->useGraph()) {
         dataDeps.buildGraphDependency();

@@ -1141,6 +1141,13 @@ void HostDataDeps::fusibilityAnalysisLinear(bool parallel) {
     llvm::errs() << "[Kernel Fusion INFO] fusible kernels from parallel analysis:\n";
     for (auto it = readyMapParallel.begin(); it != readyMapParallel.end(); ++it) {
       partitionBlock* pB = it->second;
+
+      // Add consumer as destination block for completeness
+      Process* consumerP = it->first;
+      auto destList = new std::list<Process*>;
+      destList->push_back(consumerP);
+      pB->push_back(destList);
+
       partitionBlockNames PBNam(convertToNames(pB));
       fusibleSetNamesParallel.insert(PBNam);
     }

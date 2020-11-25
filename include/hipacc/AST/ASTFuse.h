@@ -137,6 +137,7 @@ class ASTFuse {
 
     std::map<HipaccKernel *, FusionTypeTags *> FusibleKernelSubListPosMap;
     std::map<std::string, KernelListLocation> FusibleKernelBlockLocation;
+    unsigned nFusibleKernelBlockLocations = 0;
     std::set<std::vector<std::list<std::string>>> fusibleSetNamesParallel;
     std::set<std::vector<std::list<std::string>>> fusibleSetNames;
     std::vector<std::list<HipaccKernel*> *> fusibleKernelSet;
@@ -173,7 +174,7 @@ class ASTFuse {
     }
 
     void initFusibleKernelBlockLocation(FusionType fusionType) {
-      const std::set< std::vector< std::list< std::string > > >* setNames;
+      const decltype(fusibleSetNames)* setNames;
       
       if (fusionType == FusionType::Linear) {
         setNames = &fusibleSetNames;
@@ -183,18 +184,16 @@ class ASTFuse {
         hipacc_require(false, "Invalid/Corrupt fusion type.");
       }
 
-      unsigned PBlockID;
-      PBlockID = 0;
       for (auto PBN : *setNames) { // block level
         unsigned KernelVecID = 0;
         for (auto sL : PBN) {              // vector level
           KernelListLocation pos = {
             fusionType,
-            PBlockID,
+            nFusibleKernelBlockLocations,
             KernelVecID
           };
-          auto nam = sL.front();
 
+          auto nam = sL.front();
           bool locExists = FusibleKernelBlockLocation.find(nam) != FusibleKernelBlockLocation.end();
           hipacc_require(!locExists, "Kernel lists cannot be added twice");
 
@@ -204,7 +203,7 @@ class ASTFuse {
         // create a list for each partion block
         std::list<HipaccKernel*> *list = new std::list<HipaccKernel*>;
         fusibleKernelSet.push_back(list);
-        PBlockID++;
+        nFusibleKernelBlockLocations++;
       }
     }
 

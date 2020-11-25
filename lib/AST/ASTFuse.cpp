@@ -473,7 +473,17 @@ bool ASTFuse::parseFusibleKernel(HipaccKernel *K) {
   PBl->push_back(K);
 
   // fusion starts whenever a fusible block is ready
-  auto PBNam = *std::next(fusibleSetNames.begin(), loc.blockLocation);
+  
+  decltype(fusibleSetNames)* setNames = nullptr;
+  if (loc.fusionType == FusionType::Linear) {
+    setNames = &fusibleSetNames;
+  } else if (loc.fusionType == FusionType::Parallel) {
+    setNames = &fusibleSetNamesParallel;
+  } else {
+    hipacc_require(false, "Invalid kernel fusion type.");
+  }
+
+  auto PBNam = *std::next(setNames->begin(), loc.blockLocation);
   if (PBl->size() == PBNam.size()) {
     // sort fusible list based on data dependence
     PBl->sort([&] (HipaccKernel *ka, HipaccKernel *kb) -> bool {
