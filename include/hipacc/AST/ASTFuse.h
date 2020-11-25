@@ -179,9 +179,9 @@ class ASTFuse {
           unsigned KernelVecID = 0;
           for (auto sL : PBN) {              // vector level
             KernelListLocation pos = {
-              .fusionType = FusionType::Linear,
-              .blockLocation = PBlockID,
-              .listLocation = KernelVecID
+              FusionType::Linear,
+              PBlockID,
+              KernelVecID
             };
             auto nam = sL.front();
             FusibleKernelBlockLocation[nam] = pos;
