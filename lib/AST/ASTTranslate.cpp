@@ -1633,9 +1633,16 @@ Expr *ASTTranslate::VisitMemberExprTranslate(MemberExpr *E) {
   setExprProps(E, result);
 
   if (Kernel->isFusible() && fusionVars.bReplaceExprInput &&
-          KernelClass->getKernelType() == PointOperator &&
-            Kernel->getImgFromMapping(dyn_cast<FieldDecl>(VD))) {
-    return fusionVars.exprInput;
+          KernelClass->getKernelType() == PointOperator) {
+    HipaccAccessor* accessor = Kernel->getImgFromMapping(dyn_cast<FieldDecl>(VD));
+    if (accessor != nullptr) {
+      if (fusionVars.multipleInputs) {
+        HipaccImage* img = accessor->getImage();
+        return fusionVars.exprInputs[img];
+      } else {
+        return fusionVars.exprInput;
+      }
+    }
   }
 
   return result;
@@ -2427,6 +2434,17 @@ void ASTTranslate::setFusionP2PSrcOperator(VarDecl *VD) {
 void ASTTranslate::setFusionP2PDestOperator(VarDecl *VD) {
   fusionVars.bReplaceExprInput = true;
   fusionVars.exprInput = createDeclRefExpr(Ctx, VD);
+}
+
+void ASTTranslate::setFusionNP2PDestOperator(const std::map<HipaccImage*, VarDecl*>& imgVarDeclMap) {
+  fusionVars.bReplaceExprInput = true;
+  fusionVars.multipleInputs = true;
+
+  for (auto it = imgVarDeclMap.begin(); it != imgVarDeclMap.end(); ++it) {
+    HipaccImage* img = it->first;
+    VarDecl* VD = it->second;
+    fusionVars.exprInputs[img] = createDeclRefExpr(Ctx, VD);
+  }
 }
 
 void ASTTranslate::setFusionP2PIntermOperator(VarDecl *VDIn, VarDecl *VDOut) {

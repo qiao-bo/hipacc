@@ -199,6 +199,8 @@ class ASTTranslate : public StmtVisitor<ASTTranslate, Stmt *> {
         bool bSkipGidDecl;
         Expr *exprOutput;
         bool bReplaceExprOutput;
+        bool multipleInputs;
+        std::map<HipaccImage*, Expr*> exprInputs;
         Expr *exprInput;
         bool bReplaceExprInput;
         bool bP2LReplaceExprInputIdx;
@@ -230,6 +232,8 @@ class ASTTranslate : public StmtVisitor<ASTTranslate, Stmt *> {
           bSkipGidDecl(true),
           exprOutput(nullptr),
           bReplaceExprOutput(false),
+          multipleInputs(false),
+          exprInputs(),
           exprInput(nullptr),
           bReplaceExprInput(false),
           bP2LReplaceExprInputIdx(false),
@@ -520,6 +524,7 @@ class ASTTranslate : public StmtVisitor<ASTTranslate, Stmt *> {
     void setFusionSkipGidDecl(bool b) { fusionVars.bSkipGidDecl = b; }
     void setFusionP2PSrcOperator(VarDecl *VD);
     void setFusionP2PDestOperator(VarDecl *VD);
+    void setFusionNP2PDestOperator(const std::map<HipaccImage*, VarDecl*>& imgVarDeclMap);
     void setFusionP2PIntermOperator(VarDecl *VDIn, VarDecl *VDOut);
     void setFusionL2PDestOperator(VarDecl *VD, VarDecl *VDSharedImg, std::string nam);
     void setFusionL2PIntermOperator(VarDecl *VDIn, VarDecl *VDOut, VarDecl *VDSharedImg, std::string nam);

@@ -248,12 +248,16 @@ void ASTFuse::HipaccFusion(std::list<HipaccKernel *> *l) {
   if (DEBUG) {
     std::cout << "[Kernel Fusion INFO] domain-specific fusion:\n";
   }
+
+  std::map<HipaccImage*, VarDecl*> imgVarDeclMap;
+
   // fused kernel body generation
   for (auto it = (l->begin()); it != l->end(); ++it) {
     Stmt *curFusionBody = nullptr;
     HipaccKernel *K = *it;
     HipaccKernelClass *KC = K->getKernelClass();
     KernelType KernelType = KC->getKernelType();
+    HipaccIterationSpace* iterSpace = K->getIterationSpace();
     if (DEBUG) { std::cout << " Kernel " << KC->getName() + K->getName() << " executes "; }
     FusionTypeTags *KTag = FusibleKernelSubListPosMap[K];
     FunctionDecl *kernelDecl = createFunctionDecl(Ctx,
@@ -406,13 +410,14 @@ void ASTFuse::HipaccFusion(std::list<HipaccKernel *> *l) {
           if (DEBUG) { std::cout << "P2P source generate"; }
           hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
           createReg4FusionVarDecl(KC->getOutField()->getType());
+          imgVarDeclMap[iterSpace->getImage()] = fusionRegVarDecls.back();
           Hipacc->setFusionP2PSrcOperator(fusionRegVarDecls.back());
           curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
           break;
         case Destination:
           if (DEBUG) { std::cout << "P2P Destination generate"; }
           hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
-          Hipacc->setFusionP2PDestOperator(fusionRegVarDecls.back());
+          Hipacc->setFusionNP2PDestOperator(imgVarDeclMap);
           curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
           break;
         case Intermediate:
