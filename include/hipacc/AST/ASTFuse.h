@@ -115,8 +115,25 @@ class ASTFuse {
       SubListPosition Point2LocalLoc = Undefined;
       SubListPosition Local2LocalLoc = Undefined;
     };
+
+    enum class FusionType {
+      Linear,
+      Parallel
+    };
+
+    struct KernelListLocation {
+      // The type of the fusion the respective kernel can be fused with
+      FusionType fusionType;
+
+      // The location of the block in a set of partitionBlockNames
+      unsigned blockLocation;
+
+      // The location of the respective kernel list in a partitionBlockNames
+      unsigned listLocation;
+    };
+
     std::map<HipaccKernel *, FusionTypeTags *> FusibleKernelSubListPosMap;
-    std::map<std::string, std::tuple<unsigned, unsigned>> FusibleKernelBlockLocation;
+    std::map<std::string, KernelListLocation> FusibleKernelBlockLocation;
     std::set<std::vector<std::list<std::string>>> fusibleSetNamesParallel;
     std::set<std::vector<std::list<std::string>>> fusibleSetNames;
     std::vector<std::list<HipaccKernel*> *> fusibleKernelSet;
@@ -161,7 +178,11 @@ class ASTFuse {
         for (auto PBN : fusibleSetNames) { // block level
           unsigned KernelVecID = 0;
           for (auto sL : PBN) {              // vector level
-            auto pos = std::make_tuple(PBlockID, KernelVecID);
+            KernelListLocation pos = {
+              .fusionType = FusionType::Linear,
+              .blockLocation = PBlockID,
+              .listLocation = KernelVecID
+            };
             auto nam = sL.front();
             FusibleKernelBlockLocation[nam] = pos;
             KernelVecID++;

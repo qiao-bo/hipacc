@@ -424,15 +424,16 @@ bool ASTFuse::parseFusibleKernel(HipaccKernel *K) {
   if (!dataDeps->isFusible(K)) { return false; }
 
   // prepare fusible kernel list
-  unsigned PBlockID, KernelVecID;
   std::string kernelName = K->getKernelClass()->getName() + K->getName();
   hipacc_require(FusibleKernelBlockLocation.count(kernelName), "Kernel name has no record");
-  std::tie(PBlockID, KernelVecID) = FusibleKernelBlockLocation[kernelName];
-  auto PBl = fusibleKernelSet[PBlockID];
+  
+  auto loc = FusibleKernelBlockLocation[kernelName];
+
+  auto PBl = fusibleKernelSet[loc.blockLocation];
   PBl->push_back(K);
 
   // fusion starts whenever a fusible block is ready
-  auto PBNam = *std::next(fusibleSetNames.begin(), PBlockID);
+  auto PBNam = *std::next(fusibleSetNames.begin(), loc.blockLocation);
   if (PBl->size() == PBNam.size()) {
     // sort fusible list based on data dependence
     PBl->sort([&] (HipaccKernel *ka, HipaccKernel *kb) -> bool {
@@ -460,27 +461,30 @@ bool ASTFuse::parseFusibleKernel(HipaccKernel *K) {
 
 // getters
 bool ASTFuse::isSrcKernel(HipaccKernel *K) {
-  unsigned PBlockID, KernelVecID;
   std::string kernelName = K->getKernelClass()->getName() + K->getName();
   hipacc_require(FusibleKernelBlockLocation.count(kernelName), "Kernel name has no record");
-  std::tie(PBlockID, KernelVecID) = FusibleKernelBlockLocation[kernelName];
-  return fusibleKernelSet[PBlockID]->front() == K;
+
+  auto loc = FusibleKernelBlockLocation[kernelName];
+
+  return fusibleKernelSet[loc.blockLocation]->front() == K;
 }
 
 bool ASTFuse::isDestKernel(HipaccKernel *K) {
-  unsigned PBlockID, KernelVecID;
   std::string kernelName = K->getKernelClass()->getName() + K->getName();
   hipacc_require(FusibleKernelBlockLocation.count(kernelName), "Kernel name has no record");
-  std::tie(PBlockID, KernelVecID) = FusibleKernelBlockLocation[kernelName];
-  return fusibleKernelSet[PBlockID]->back() == K;
+
+  auto loc = FusibleKernelBlockLocation[kernelName];
+
+  return fusibleKernelSet[loc.blockLocation]->back() == K;
 }
 
 HipaccKernel *ASTFuse::getProducerKernel(HipaccKernel *K) {
-  unsigned PBlockID, KernelVecID;
   std::string kernelName = K->getKernelClass()->getName() + K->getName();
   hipacc_require(FusibleKernelBlockLocation.count(kernelName), "Kernel name has no record");
-  std::tie(PBlockID, KernelVecID) = FusibleKernelBlockLocation[kernelName];
-  auto PBl = fusibleKernelSet[PBlockID];
+
+  auto loc = FusibleKernelBlockLocation[kernelName];
+
+  auto PBl = fusibleKernelSet[loc.blockLocation];
   auto it = std::find(PBl->begin(), PBl->end(), K);
   return (it == PBl->begin()) ? nullptr : *std::prev(it);
 }
