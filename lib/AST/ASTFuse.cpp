@@ -143,8 +143,15 @@ void ASTFuse::markKernelPositionSublist(std::list<HipaccKernel *> *l) {
       }
     }
   } else if (fusionType == FusionType::Parallel) {
-    // TODO
-    hipacc_require(false, "Parallel fusion is not yet implemented");
+    HipaccKernel* consumer = l->back();
+    for (auto kernel : *l) {
+      FusionTypeTags* tags = FusibleKernelSubListPosMap[kernel];
+      if (kernel == consumer) {
+        tags->Point2PointLoc = Destination;
+      } else {
+        tags->Point2PointLoc = Source;
+      }
+    }
   }
 }
 
@@ -392,8 +399,26 @@ void ASTFuse::HipaccFusion(std::list<HipaccKernel *> *l) {
           break;
       }
     } else if (fusionType == FusionType::Parallel) {
-      // TODO
-      hipacc_require(false, "Parallel Fusion is not yet implemented");
+      switch(KTag->Point2PointLoc) {
+        default:
+          break;
+        case Source:
+          if (DEBUG) { std::cout << "P2P source generate"; }
+          hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
+          createReg4FusionVarDecl(KC->getOutField()->getType());
+          Hipacc->setFusionP2PSrcOperator(fusionRegVarDecls.back());
+          curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
+          break;
+        case Destination:
+          if (DEBUG) { std::cout << "P2P Destination generate"; }
+          hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
+          Hipacc->setFusionP2PDestOperator(fusionRegVarDecls.back());
+          curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
+          break;
+        case Intermediate:
+          hipacc_require(false, "Invalid kernel position for parallel fusion");
+          break;
+      }
     }
 
     if (curFusionBody) {
