@@ -1538,23 +1538,18 @@ std::set<HostDataDeps::partitionBlockNames> HostDataDeps::getFusibleSetNamesPara
 }
 
 bool HostDataDeps::isFusible(HipaccKernel *K) {
-  bool isFusible = false;
   std::string fullName = K->getKernelClass()->getName() + K->getName();
 
   // Kernel name has no corresponding process or no execute() is called
   if (!processMap_.count(fullName)) {
-    return isFusible;
+    return false;
   }
   // get Kernel Partition Block
-  for (auto PBN : fusibleSetNames) {
-    if (std::any_of(PBN.begin(), PBN.end(), [&](std::list<std::string> lNam){
-      return (std::find(lNam.begin(), lNam.end(), fullName) != lNam.end()) &&
-        (lNam.size() > 1);})) {
-      isFusible = true;
-      break;
-    }
-  }
-  return isFusible;
+
+  bool isLinearFusible = partitionBlockNamesContains(fusibleSetNames, fullName);
+  bool isParallelFusible = partitionBlockNamesContains(fusibleSetNamesParallel, fullName);
+
+  return isLinearFusible && isParallelFusible;
 }
 
 bool HostDataDeps::hasSharedIS(HipaccKernel *K) {

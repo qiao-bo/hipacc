@@ -487,7 +487,7 @@ class HostDataDeps : public ManagedAnalysis {
     std::string getKernelNodeName(std::string kernelName);
 
     // helper to convert a partitionBlock to a block of the respective kernel names
-    static partitionBlockNames convertToNames(partitionBlock* pB) {
+    static partitionBlockNames convertToNames(const partitionBlock* pB) {
       partitionBlockNames PBNam;
       llvm::errs() << " [ ";
       for (auto pL : *pB) {
@@ -504,6 +504,20 @@ class HostDataDeps : public ManagedAnalysis {
       llvm::errs() << "] \n";
 
       return PBNam;
+    }
+
+    static bool partitionBlockNamesContains(
+      const std::set<partitionBlockNames>& haystack,
+      const std::string& needle
+    ) {
+      for (const auto& PBN : haystack) {
+        if (std::any_of(PBN.begin(), PBN.end(), [&](std::list<std::string> lNam){
+          return (std::find(lNam.begin(), lNam.end(), needle) != lNam.end()) &&
+            (lNam.size() > 1);})) {
+          return true;
+        }
+      }
+      return false;
     }
 
     // kernel fusion analysis
