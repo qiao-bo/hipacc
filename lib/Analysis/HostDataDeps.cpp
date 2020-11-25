@@ -1549,7 +1549,7 @@ bool HostDataDeps::isFusible(HipaccKernel *K) {
   bool isLinearFusible = partitionBlockNamesContains(fusibleSetNames, fullName);
   bool isParallelFusible = partitionBlockNamesContains(fusibleSetNamesParallel, fullName);
 
-  return isLinearFusible && isParallelFusible;
+  return isLinearFusible || isParallelFusible;
 }
 
 bool HostDataDeps::hasSharedIS(HipaccKernel *K) {
