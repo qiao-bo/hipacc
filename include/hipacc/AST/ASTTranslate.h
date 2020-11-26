@@ -202,6 +202,7 @@ class ASTTranslate : public StmtVisitor<ASTTranslate, Stmt *> {
         bool multipleInputs;
         std::map<HipaccImage*, Expr*> exprInputs;
         Expr *exprInput;
+        Expr *exprInputAccess;
         bool bReplaceExprInput;
         bool bP2LReplaceExprInputIdx;
         Expr *exprP2LInputIdx;
@@ -235,6 +236,7 @@ class ASTTranslate : public StmtVisitor<ASTTranslate, Stmt *> {
           multipleInputs(false),
           exprInputs(),
           exprInput(nullptr),
+          exprInputAccess(nullptr),
           bReplaceExprInput(false),
           bP2LReplaceExprInputIdx(false),
           exprP2LInputIdx(nullptr),
@@ -520,9 +522,14 @@ class ASTTranslate : public StmtVisitor<ASTTranslate, Stmt *> {
     static std::string getInterpolationName(CompilerOptions &compilerOptions,
         HipaccKernel *Kernel, HipaccAccessor *Acc);
 
+    // Function to generate the memory access for a fused nP2P Kernel
+    Expr *makeNP2PMemAccess(VarDecl *lhsVD, HipaccKernel *kernel, HipaccAccessor *acc,
+        Expr *offset_x=nullptr, Expr *offset_y=nullptr);
+
     // Kernel Fusion getters and setters
     void setFusionSkipGidDecl(bool b) { fusionVars.bSkipGidDecl = b; }
     void setFusionP2PSrcOperator(VarDecl *VD);
+    void setFusionNP2PSrcOperator(VarDecl *inVD, VarDecl *outVD);
     void setFusionP2PDestOperator(VarDecl *VD);
     void setFusionNP2PDestOperator(const std::map<HipaccImage*, VarDecl*>& imgVarDeclMap);
     void setFusionP2PIntermOperator(VarDecl *VDIn, VarDecl *VDOut);

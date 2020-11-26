@@ -1999,7 +1999,11 @@ Expr *ASTTranslate::VisitCXXOperatorCallExprTranslate(CXXOperatorCallExpr *E) {
         if (use_shared) {
           result = accessMemShared(DRE, TX, SY);
         } else {
-          result = accessMem(LHS, acc, mem_acc);
+          if (fusionVars.exprInputAccess != nullptr) {
+            result = fusionVars.exprInputAccess;
+          } else {
+            result = accessMem(LHS, acc, mem_acc);
+          }
         }
 
         if (Kernel->isFusible() && KernelClass->getKernelType() == LocalOperator) {
@@ -2426,9 +2430,42 @@ Expr *ASTTranslate::BinningTranslator::translateCXXMemberCallExpr(CXXMemberCallE
   return E;
 }
 
+Expr *ASTTranslate::makeNP2PMemAccess(
+  VarDecl *lhsVD,
+  HipaccKernel* kernel,
+  HipaccAccessor* acc,
+  Expr *offset_x,
+  Expr *offset_y
+) {
+  DeclRefExpr* lhs = createDeclRefExpr(Ctx, lhsVD);
+  HipaccKernelClass* kernelClass = kernel->getKernelClass();
+
+  // Find field declaration for accessor
+  FieldDecl* imgField = nullptr;
+  for (FieldDecl* fieldDecl : kernelClass->getImgFields()) {
+    HipaccAccessor* fieldAcc = kernel->getImgFromMapping(fieldDecl);
+    if (fieldAcc == acc) {
+      imgField = fieldDecl;
+      break;
+    }
+  }
+
+  hipacc_require(imgField != nullptr, "Did not find field for accessor.");
+
+  MemoryAccess memAccess = kernelClass->getMemAccess(imgField);
+
+  return accessMem(lhs, acc, memAccess, offset_x, offset_y);
+}
+
 void ASTTranslate::setFusionP2PSrcOperator(VarDecl *VD) {
   fusionVars.bReplaceExprOutput = true;
   fusionVars.exprOutput = createDeclRefExpr(Ctx, VD);
+}
+
+void ASTTranslate::setFusionNP2PSrcOperator(VarDecl *inVD, VarDecl *outVD) {
+  fusionVars.bReplaceExprOutput = true;
+  fusionVars.exprOutput = createDeclRefExpr(Ctx, outVD);
+  fusionVars.exprInputAccess = createDeclRefExpr(Ctx, inVD);
 }
 
 void ASTTranslate::setFusionP2PDestOperator(VarDecl *VD) {
