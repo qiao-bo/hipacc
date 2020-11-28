@@ -618,8 +618,8 @@ void HostDataDeps::addKernel(
   kernelMap_[KVD] = kernel;
 }
 
-FusiblePartitionBlock::FusiblePartitionBlock(HostDataDeps::partitionBlock& inBlock) {
-  for (auto& inPart : inBlock) {
+FusiblePartitionBlock::FusiblePartitionBlock(PatternType patternType, HostDataDeps::partitionBlock& inBlock) {
+  for (auto* inPart : inBlock) {
     Part part;
     for (HostDataDeps::Process* inProcess : *inPart) {
       part.push_back({
@@ -627,9 +627,101 @@ FusiblePartitionBlock::FusiblePartitionBlock(HostDataDeps::partitionBlock& inBlo
       });
     }
     parts.push_back(part);
-
-    // TODO
   }
+
+  Pattern pat;
+
+  switch (patternType) {
+    default:
+      hipacc_require(false, "Invalid pattern type.");
+      exit(1); // This will never be reached
+    case PatternType::Linear:
+      pat = Pattern::Linear;
+      break;
+    case PatternType::Parallel:
+      // TODO
+      std::list<HostDataDeps::Process*> producers;
+      HostDataDeps::Process* consumer = nullptr;
+      for (auto* inPart : inBlock) {
+        hipacc_require(inPart->size() == 1 || inPart->size() == 2, "Invalid block part length.");
+
+        if (inPart->size() == 2) {
+          HostDataDeps::Process* innerConsumer = *std::next(inPart->begin());
+          if (consumer == nullptr) {
+            innerConsumer = consumer;
+          } else {
+            hipacc_require(innerConsumer == consumer, "In parallel patterns, all parts must have the same consumer.");
+          }
+        }
+
+        producers.push_back(inPart->front());
+      }
+
+      hipacc_require(consumer != nullptr, "Patterns with no consumers are not allowed.");
+      hipacc_require(producers.size() > 1, "In parallel patterns, more than one producer must exist.");
+
+      auto consumerKT = consumer->getKernel()->getKernelClass()->getKernelType();
+      hipacc_require(consumerKT == PointOperator || consumerKT == LocalOperator,
+        "In parallel patterns, only local or point operators are supported");
+
+      auto firstProducerKT = producers.front()->getKernel()->getKernelClass()->getKernelType();
+      hipacc_require(firstProducerKT == PointOperator || firstProducerKT == LocalOperator,
+        "In parallel patterns, only local or point operators are supported");
+
+      if (consumerKT == PointOperator) {
+        pat = Pattern::NP2P;
+      } else {
+        pat = Pattern::NP2L;
+      }
+
+      for (auto* producer : producers) {
+        auto producerKT = producer->getKernel()->getKernelClass()->getKernelType();
+        hipacc_require(producerKT == PointOperator || producerKT == LocalOperator,
+          "In parallel patterns, only local or point operators are supported");
+        
+        if (producerKT != firstProducerKT) { // Mixed producer kernel types
+          if (consumerKT == PointOperator) {
+            pat = Pattern::Mixed2P;
+          } else {
+            pat = Pattern::Mixed2L;
+          }
+          break;
+        } else if (producerKT == PointOperator) { // Only point producers
+          if (consumerKT == PointOperator) {
+            pat = Pattern::NP2P;
+          } else {
+            pat = Pattern::NP2L;
+          }
+        } else { // Only local producers
+          if (consumerKT == PointOperator) {
+            pat = Pattern::NL2P;
+          } else {
+            pat = Pattern::NL2L;
+          }
+        }
+      }
+
+      break;
+  }
+
+  pattern = pat;
+}
+
+FusiblePartitionBlock::PatternType FusiblePartitionBlock::getPatternType() const {
+  switch (pattern) {
+    case Pattern::Linear:
+      return PatternType::Linear;
+    case Pattern::NP2P:
+    case Pattern::NL2P:
+    case Pattern::Mixed2P:
+    case Pattern::NP2L:
+    case Pattern::NL2L:
+    case Pattern::Mixed2L:
+      return PatternType::Parallel;
+  }
+
+  hipacc_require(false, "FusiblePartitionBlock has invalid pattern.");
+  exit(1); // This will never be reached
 }
 
 void HostDataDeps::addAccessor(

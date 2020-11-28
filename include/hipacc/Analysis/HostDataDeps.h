@@ -580,15 +580,9 @@ class FusiblePartitionBlock {
 
     enum class Pattern {
       // Linear patterns
+      Linear,
 
-      // Linear point to point
-      P2P,
-      // Linear local to point
-      L2P,
-      // Linear point to local
-      P2L,
-      // Linear local to local
-      L2L,
+      // Parallel patterns
 
       // Parallel points to point
       NP2P,
@@ -601,7 +595,7 @@ class FusiblePartitionBlock {
       // Parallel locals to local
       NL2L,
       // Parallel mixed locals/points to local
-      Mixed2L,
+      Mixed2L
     };
 
     struct KernelInfo {
@@ -609,12 +603,13 @@ class FusiblePartitionBlock {
     };
   
   private:
-    PatternType patternType;
     Pattern pattern;
     std::vector<Part> parts;
     
   public:
-    FusiblePartitionBlock(HostDataDeps::partitionBlock& inBlock);
+    FusiblePartitionBlock(PatternType patternType, HostDataDeps::partitionBlock& inBlock);
+
+    PatternType getPatternType() const;
 };
 
 }
