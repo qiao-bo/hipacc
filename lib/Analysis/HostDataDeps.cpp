@@ -1036,7 +1036,6 @@ std::map<std::string, std::set<std::string>> HostDataDeps::getGraphNodeDepMap() 
 // detect simple linear producer-consumer data dependence
 void HostDataDeps::fusibilityAnalysisLinear(bool parallel) {
   partitionBlock workingBlock;
-  partitionBlock workingBlockParallel;
   partitionBlock readyBlock;
 
   for (auto pL : applicationGraph) {
@@ -1045,23 +1044,6 @@ void HostDataDeps::fusibilityAnalysisLinear(bool parallel) {
     // record only single comsumer kernel list
     if (pL->size() == 2 && (KT == PointOperator || KT == LocalOperator)) {
       workingBlock.push_back(pL);
-    }
-    if (pL->size() > 2 && (KT == PointOperator)) {
-      bool consider = true;
-      for (auto p : *pL) {
-        // for every consumer
-        if (p != producerP) {
-          KernelType consumerKt = p->getKernel()->getKernelClass()->getKernelType();
-          if (consumerKt != PointOperator) {
-            consider = false; // do not consider lists with non-point consumers
-            break;
-          }
-        }
-      }
-
-      if (consider) {
-        workingBlockParallel.push_back(pL);
-      }
     }
   }
 
@@ -1112,16 +1094,8 @@ void HostDataDeps::fusibilityAnalysisLinear(bool parallel) {
   std::map<Process*, partitionBlock*> readyMapParallel;
 
   for (auto pL : workingBlock) {
-    Process* producerP = pL->front();
     Process* consumerP = pL->back();
 
-    KernelType producerKT = producerP->getKernel()->getKernelClass()->getKernelType();
-    KernelType consumerKT = consumerP->getKernel()->getKernelClass()->getKernelType();
-
-    if (producerKT != PointOperator || consumerKT != PointOperator) {
-      // only support point operators
-      continue;
-    }
     if (readyMapParallel.find(consumerP) != readyMapParallel.end()) {
       // if respective chunk is already in map, ignore it
       continue;
@@ -1139,13 +1113,8 @@ void HostDataDeps::fusibilityAnalysisLinear(bool parallel) {
       Process* innerProducerP = poL->front();
       Process* innerConsumerP = poL->back();
 
-      KernelType innerProducerKT = innerProducerP->getKernel()->getKernelClass()->getKernelType();
-      KernelType innerConsumerKT = innerConsumerP->getKernel()->getKernelClass()->getKernelType();
-
       if (
         poL->size() == 2 &&
-        innerProducerKT == PointOperator &&
-        innerConsumerKT == PointOperator &&
         innerConsumerP == consumerP
       ) {
         std::vector<Space*> inSpaces = innerProducerP->getInSpaces();
