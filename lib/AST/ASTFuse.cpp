@@ -56,15 +56,16 @@ void ASTFuse::insertEpilogFusedKernel() {
 
 
 void ASTFuse::markKernelPositionSublist(std::list<HipaccKernel *> *l) {
-  FusionType fusionType = getFusionTypeFor(l);
+  auto partitionBlock = getPartitionBlockFor(l);
+  FusiblePartitionBlock::PatternType patternType = partitionBlock.getPatternType();
 
   // initialize kernel location tags
   for (auto K : *l) {
-    FusionTypeTags *tags = new FusionTypeTags(fusionType);
+    FusionTypeTags *tags = new FusionTypeTags(patternType);
     FusibleKernelSubListPosMap[K] = tags;
   }
 
-  if (fusionType == FusionType::Linear) {
+  if (patternType == FusiblePartitionBlock::PatternType::Linear) {
     // sub-list indexing
     auto itSrc = l->begin();
     auto itLastLocal = l->begin();
@@ -142,7 +143,7 @@ void ASTFuse::markKernelPositionSublist(std::list<HipaccKernel *> *l) {
         std::cout << " Local2LocalLoc(" << tags->Local2LocalLoc << ")\n";
       }
     }
-  } else if (fusionType == FusionType::Parallel) {
+  } else if (patternType == FusiblePartitionBlock::PatternType::Parallel) {
     HipaccKernel* consumer = l->back();
     for (auto kernel : *l) {
       FusionTypeTags* tags = FusibleKernelSubListPosMap[kernel];
@@ -226,7 +227,8 @@ void ASTFuse::initKernelFusion() {
 void ASTFuse::HipaccFusion(std::list<HipaccKernel *> *l) {
   hipacc_require((l->size() >=2), "at least two kernels shoud be recorded for fusion");
   
-  FusionType fusionType = getFusionTypeFor(l);
+  auto partitionBlock = getPartitionBlockFor(l);
+  FusiblePartitionBlock::PatternType patternType = partitionBlock.getPatternType();
 
   initKernelFusion();
   curFusedKernelDecl = createFusedKernelDecl(l);
@@ -267,7 +269,7 @@ void ASTFuse::HipaccFusion(std::list<HipaccKernel *> *l) {
     ASTTranslate *Hipacc = new ASTTranslate(Ctx, kernelDecl, K, KC,
         builtins, compilerOptions);
 
-    if (fusionType == FusionType::Linear) {
+    if (patternType == FusiblePartitionBlock::PatternType::Linear) {
       // Point-to-Point Transformation
       switch(KTag->Point2PointLoc) {
         default:
@@ -403,7 +405,7 @@ void ASTFuse::HipaccFusion(std::list<HipaccKernel *> *l) {
           hipacc_require(0, "Only two local kernels can be fused");
           break;
       }
-    } else if (fusionType == FusionType::Parallel) {
+    } else if (patternType == FusiblePartitionBlock::PatternType::Parallel) {
       auto imgFields = KC->getImgFields();
       
       FieldDecl* srcAccessorDecl = nullptr;
@@ -505,26 +507,19 @@ bool ASTFuse::parseFusibleKernel(HipaccKernel *K) {
   PBl->push_back(K);
 
   // fusion starts whenever a fusible block is ready
-  
-  decltype(fusibleSetNames)* setNames = nullptr;
-  if (loc.fusionType == FusionType::Linear) {
-    setNames = &fusibleSetNames;
-  } else if (loc.fusionType == FusionType::Parallel) {
-    setNames = &fusibleSetNamesParallel;
-  } else {
-    hipacc_require(false, "Invalid kernel fusion type.");
-  }
 
-  auto PBNam = *std::next(setNames->begin(), loc.blockLocation);
-  if (PBl->size() == PBNam.size()) {
+  auto fusibleParts = std::next(dataDeps->getFusiblePartitionBlocks().begin(), loc.blockLocation)->getParts();
+  if (PBl->size() == fusibleParts.size()) {
     // sort fusible list based on data dependence
     PBl->sort([&] (HipaccKernel *ka, HipaccKernel *kb) -> bool {
         std::string kaNam = ka->getKernelClass()->getName() + ka->getName();
-        auto itKa = std::find_if(PBNam.begin(), PBNam.end(),
-                    [&](std::list<std::string> ls) { return ls.front() == kaNam; });
-        hipacc_require(itKa != PBNam.end(), "Kernel cannot be sorted");
+        auto itKa = std::find_if(fusibleParts.begin(), fusibleParts.end(),
+                    [&](const FusiblePartitionBlock::Part& part) { return part.front().getName() == kaNam; });
+        hipacc_require(itKa != fusibleParts.end(), "Kernel cannot be sorted");
         std::string kbNam = kb->getKernelClass()->getName() + kb->getName();
-        return (std::find(itKa->begin(), itKa->end(), kbNam) != itKa->end());
+        return (std::find_if(itKa->begin(), itKa->end(), [&](const FusiblePartitionBlock::KernelInfo& info) {
+          return info.getName() == kbNam;
+        }) != itKa->end());
     });
 
     if (DEBUG) {

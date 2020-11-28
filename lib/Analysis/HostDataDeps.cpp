@@ -1266,8 +1266,6 @@ void HostDataDeps::fusibilityAnalysisLinear(bool parallel) {
     llvm::errs() << "[Kernel Fusion INFO] fusible kernels from linear analysis:\n";
     for (auto pB : readySet) {
       fusiblePartitionBlocks.emplace(FusiblePartitionBlock::PatternType::Linear, *pB);
-      partitionBlockNames PBNam(convertToNames(pB));
-      fusibleSetNames.insert(PBNam);
     }
   }
 
@@ -1284,9 +1282,6 @@ void HostDataDeps::fusibilityAnalysisLinear(bool parallel) {
       pB->push_back(destList);
 
       fusiblePartitionBlocks.emplace(FusiblePartitionBlock::PatternType::Parallel, *pB);
-
-      partitionBlockNames PBNam(convertToNames(pB));
-      fusibleSetNamesParallel.insert(PBNam);
     }
   }
 }
@@ -1361,7 +1356,6 @@ void HostDataDeps::fusibilityAnalysis() {
       PBNam.push_back(lNam);
     }
     llvm::errs() << "--------------------------------\n";
-    fusibleSetNames.insert(PBNam);
     fusiblePartitionBlocks.emplace(FusiblePartitionBlock::PatternType::Linear, PB);
   }
 }
@@ -1674,39 +1668,18 @@ bool HostDataDeps::isDest(Process *P) {
   return s->getDstProcesses().empty();
 }
 
-std::set<HostDataDeps::partitionBlockNames> HostDataDeps::getFusibleSetNames() const {
-  return fusibleSetNames;
-}
-
-std::set<HostDataDeps::partitionBlockNames> HostDataDeps::getFusibleSetNamesParallel() const {
-  return fusibleSetNamesParallel;
-}
-
 const std::set<FusiblePartitionBlock>& HostDataDeps::getFusiblePartitionBlocks() const {
   return fusiblePartitionBlocks;
 }
 
 bool HostDataDeps::isFusible(HipaccKernel *K) {
-  auto fusibleBlock = std::find_if(
-    fusiblePartitionBlocks.begin(),
-    fusiblePartitionBlocks.end(),
-    [K](const FusiblePartitionBlock& block) {
-      return block.hasKernel(K);
-    }
-  );
+  auto fusibleBlock = FusiblePartitionBlock::findForKernel(K, fusiblePartitionBlocks);
 
   if (fusibleBlock == fusiblePartitionBlocks.end()) {
     return false;
   }
 
-  switch (fusibleBlock->getPattern()) {
-    case FusiblePartitionBlock::Pattern::Linear:
-      return true;
-    case FusiblePartitionBlock::Pattern::NP2P:
-      return true;
-    default:
-      return false;
-  }
+  return fusibleBlock->isPatternFusible();
 }
 
 bool HostDataDeps::hasSharedIS(HipaccKernel *K) {

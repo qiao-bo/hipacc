@@ -168,8 +168,6 @@ class HostDataDeps : public ManagedAnalysis {
     using partitionBlock = std::vector<std::list<Process*> *>;
     partitionBlock applicationGraph;
     using partitionBlockNames = std::vector<std::list<std::string>>;
-    std::set<partitionBlockNames> fusibleSetNames;
-    std::set<partitionBlockNames> fusibleSetNamesParallel;
     std::set<FusiblePartitionBlock> fusiblePartitionBlocks;
     using edgeWeight = std::map<std::pair<Process *, Process *>, unsigned>;
     edgeWeight edgeWeightMap_;
@@ -538,8 +536,6 @@ class HostDataDeps : public ManagedAnalysis {
     bool isSrc(Process *P);
     bool isDest(Process *P);
     const std::set<FusiblePartitionBlock>& getFusiblePartitionBlocks() const;
-    std::set<partitionBlockNames> getFusibleSetNames() const;
-    std::set<partitionBlockNames> getFusibleSetNamesParallel() const;
     std::string getGraphMemcpyNodeName(std::string dst, std::string src, std::string dir);
     std::string getGraphKernelNodeName(std::string kernelName);
     std::set<std::string> getGraphMemcpyNodeDepOn(std::string dst, std::string src, std::string dir);
@@ -616,6 +612,34 @@ class FusiblePartitionBlock {
     
   public:
     FusiblePartitionBlock(PatternType patternType, HostDataDeps::partitionBlock& inBlock);
+
+    static std::set<FusiblePartitionBlock>::iterator findForKernel(
+      const HipaccKernel* kernel,
+      const std::set<FusiblePartitionBlock>& fusibleBlocks
+    ) {
+      return std::find_if(
+        fusibleBlocks.begin(),
+        fusibleBlocks.end(),
+        [kernel](const FusiblePartitionBlock& block) {
+          return block.hasKernel(kernel);
+        }
+      );
+    }
+
+    /**
+     * Check whether the pattern of this block is fusible.
+     */
+    bool isPatternFusible() const {
+      // Return true if the pattern is fusible by the current ASTFuse tool, false otherwise.
+
+      switch (pattern) {
+        case FusiblePartitionBlock::Pattern::Linear:
+        case FusiblePartitionBlock::Pattern::NP2P:
+          return true;
+        default:
+          return false;
+      }
+    }
 
     PatternType getPatternType() const;
     Pattern getPattern() const;

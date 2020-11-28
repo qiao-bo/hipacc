@@ -109,25 +109,17 @@ class ASTFuse {
       Undefined
     };
 
-    enum class FusionType {
-      Linear,
-      Parallel
-    };
-
     struct FusionTypeTags {
       SubListPosition Point2PointLoc = Undefined;
       SubListPosition Local2PointLoc = Undefined;
       SubListPosition Point2LocalLoc = Undefined;
       SubListPosition Local2LocalLoc = Undefined;
-      FusionType fusionType;
+      FusiblePartitionBlock::PatternType patternType;
 
-      FusionTypeTags(FusionType fusionType) : fusionType(fusionType) {}
+      FusionTypeTags(FusiblePartitionBlock::PatternType patternType) : patternType(patternType) {}
     };
 
     struct KernelListLocation {
-      // The type of the fusion the respective kernel can be fused with
-      FusionType fusionType;
-
       // The location of the block in a set of partitionBlockNames
       unsigned blockLocation;
 
@@ -137,9 +129,6 @@ class ASTFuse {
 
     std::map<HipaccKernel *, FusionTypeTags *> FusibleKernelSubListPosMap;
     std::map<std::string, KernelListLocation> FusibleKernelBlockLocation;
-    unsigned nFusibleKernelBlockLocations = 0;
-    std::set<std::vector<std::list<std::string>>> fusibleSetNamesParallel;
-    std::set<std::vector<std::list<std::string>>> fusibleSetNames;
     std::vector<std::list<HipaccKernel*> *> fusibleKernelSet;
 
     // member functions
@@ -156,55 +145,23 @@ class ASTFuse {
     void markKernelPositionSublist(std::list<HipaccKernel *> *l);
     void recomputeMemorySizeLocalFusion(std::list<HipaccKernel *> *l);
 
-    FusionType getFusionTypeFor(std::list<HipaccKernel *> *l) {
+    const FusiblePartitionBlock& getPartitionBlockFor(std::list<HipaccKernel *> *l) {
       hipacc_require((!l->empty()), "There is no fusion type for empty lists.");
-      const FusionType* fusionType = nullptr;
+
+      auto fusibleBlocks = dataDeps->getFusiblePartitionBlocks();
+      auto block = fusibleBlocks.end();
+
       for (auto k : *l) {
-        std::string kernelName = k->getKernelClass()->getName() + k->getName();
-        const auto& loc = FusibleKernelBlockLocation[kernelName];
-        const FusionType* t = &loc.fusionType;
-        if (fusionType != nullptr) {
-          hipacc_require((*t == *fusionType), "The given kernel list contains kernels with distinct fusion types.");
+        auto innerBlock = FusiblePartitionBlock::findForKernel(k, fusibleBlocks);
+        if (block != fusibleBlocks.end()) {
+          hipacc_require((block == innerBlock), "The given kernel list contains kernels of distinct partition blocks.");
         } else {
-          fusionType = t;
+          block = innerBlock;
         }
       }
 
-      return *fusionType;
-    }
-
-    void initFusibleKernelBlockLocation(FusionType fusionType) {
-      const decltype(fusibleSetNames)* setNames;
-      
-      if (fusionType == FusionType::Linear) {
-        setNames = &fusibleSetNames;
-      } else if (fusionType == FusionType::Parallel) {
-        setNames = &fusibleSetNamesParallel;
-      } else {
-        hipacc_require(false, "Invalid/Corrupt fusion type.");
-      }
-
-      for (auto PBN : *setNames) { // block level
-        unsigned KernelVecID = 0;
-        for (auto sL : PBN) {              // vector level
-          KernelListLocation pos = {
-            fusionType,
-            nFusibleKernelBlockLocations,
-            KernelVecID
-          };
-
-          auto nam = sL.front();
-          bool locExists = FusibleKernelBlockLocation.find(nam) != FusibleKernelBlockLocation.end();
-          hipacc_require(!locExists, "Kernel lists cannot be added twice");
-
-          FusibleKernelBlockLocation[nam] = pos;
-          KernelVecID++;
-        }
-        // create a list for each partion block
-        std::list<HipaccKernel*> *list = new std::list<HipaccKernel*>;
-        fusibleKernelSet.push_back(list);
-        nFusibleKernelBlockLocations++;
-      }
+      hipacc_require(block != fusibleBlocks.end(), "The given kernel list did not correspond to a partition block.");
+      return *block;
     }
 
   public:
@@ -223,12 +180,31 @@ class ASTFuse {
       fusionRegVarCount(0),
       fusionIdxVarCount(0)
       {
-        fusibleSetNames = dataDeps->getFusibleSetNames();
-        fusibleSetNamesParallel = dataDeps->getFusibleSetNamesParallel();
+        unsigned nFusibleKernelBlockLocations = 0;
+        for (const auto& fusibleBlock : dataDeps->getFusiblePartitionBlocks()) { // block level
+          if (!fusibleBlock.isPatternFusible()) {
+            continue;
+          }
 
-        // unpack fusible kernel info, one kernel per PB
-        initFusibleKernelBlockLocation(FusionType::Linear);
-        initFusibleKernelBlockLocation(FusionType::Parallel);
+          unsigned KernelVecID = 0;
+          for (const auto& part : fusibleBlock.getParts()) {              // vector level
+            KernelListLocation pos = {
+              nFusibleKernelBlockLocations,
+              KernelVecID
+            };
+
+            auto nam = part.front().getName();
+            bool locExists = FusibleKernelBlockLocation.find(nam) != FusibleKernelBlockLocation.end();
+            hipacc_require(!locExists, "Kernel lists cannot be added twice");
+
+            FusibleKernelBlockLocation[nam] = pos;
+            KernelVecID++;
+          }
+          // create a list for each partion block
+          std::list<HipaccKernel*> *list = new std::list<HipaccKernel*>;
+          fusibleKernelSet.push_back(list);
+          nFusibleKernelBlockLocations++;
+        }
       }
 
     // Called by Rewriter
