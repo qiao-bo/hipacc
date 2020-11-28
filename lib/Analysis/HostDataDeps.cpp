@@ -724,6 +724,23 @@ FusiblePartitionBlock::PatternType FusiblePartitionBlock::getPatternType() const
   exit(1); // This will never be reached
 }
 
+FusiblePartitionBlock::Pattern FusiblePartitionBlock::getPattern() const {
+  return pattern;
+}
+
+const std::vector<FusiblePartitionBlock::Part>& FusiblePartitionBlock::getParts() const {
+  return parts;
+}
+
+bool FusiblePartitionBlock::hasKernelName(const std::string& name) const {
+  return kernelNames.find(name) != kernelNames.end();
+}
+
+bool FusiblePartitionBlock::hasKernel(const HipaccKernel* kernel) const {
+  std::string kernelName = kernel->getKernelClass()->getName() + kernel->getName();
+  return hasKernelName(kernelName);
+}
+
 void HostDataDeps::addAccessor(
     ValueDecl *AVD, HipaccAccessor *acc, ValueDecl* IVD) {
   Image *img;

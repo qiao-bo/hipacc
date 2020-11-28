@@ -58,6 +58,7 @@
 #include <algorithm>
 #include <iostream>
 #include <sstream>
+#include <unordered_set>
 
 //#define PRINT_DEBUG
 
@@ -600,16 +601,23 @@ class FusiblePartitionBlock {
 
     struct KernelInfo {
       std::string name;
+
+      const std::string& getName() const;
     };
   
   private:
     Pattern pattern;
     std::vector<Part> parts;
+    std::unordered_set<std::string> kernelNames;
     
   public:
     FusiblePartitionBlock(PatternType patternType, HostDataDeps::partitionBlock& inBlock);
 
     PatternType getPatternType() const;
+    Pattern getPattern() const;
+    const std::vector<Part>& getParts() const;
+    bool hasKernelName(const std::string& name) const;
+    bool hasKernel(const HipaccKernel* kernel) const;
 };
 
 }
