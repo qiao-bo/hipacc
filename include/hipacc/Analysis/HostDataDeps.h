@@ -170,6 +170,7 @@ class HostDataDeps : public ManagedAnalysis {
     using partitionBlockNames = std::vector<std::list<std::string>>;
     std::set<partitionBlockNames> fusibleSetNames;
     std::set<partitionBlockNames> fusibleSetNamesParallel;
+    std::set<FusiblePartitionBlock> fusiblePartitionBlocks;
     using edgeWeight = std::map<std::pair<Process *, Process *>, unsigned>;
     edgeWeight edgeWeightMap_;
 
@@ -536,6 +537,7 @@ class HostDataDeps : public ManagedAnalysis {
     std::string getSharedISName(HipaccKernel *K);
     bool isSrc(Process *P);
     bool isDest(Process *P);
+    const std::set<FusiblePartitionBlock>& getFusiblePartitionBlocks() const;
     std::set<partitionBlockNames> getFusibleSetNames() const;
     std::set<partitionBlockNames> getFusibleSetNamesParallel() const;
     std::string getGraphMemcpyNodeName(std::string dst, std::string src, std::string dir);
@@ -603,6 +605,8 @@ class FusiblePartitionBlock {
       std::string name;
 
       const std::string& getName() const;
+
+      bool operator < ( const KernelInfo& rhs ) const;
     };
   
   private:
@@ -618,6 +622,8 @@ class FusiblePartitionBlock {
     const std::vector<Part>& getParts() const;
     bool hasKernelName(const std::string& name) const;
     bool hasKernel(const HipaccKernel* kernel) const;
+
+    bool operator < ( const FusiblePartitionBlock& rhs ) const;
 };
 
 }

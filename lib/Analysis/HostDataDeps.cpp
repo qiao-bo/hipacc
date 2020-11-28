@@ -648,7 +648,7 @@ FusiblePartitionBlock::FusiblePartitionBlock(PatternType patternType, HostDataDe
         if (inPart->size() == 2) {
           HostDataDeps::Process* innerConsumer = *std::next(inPart->begin());
           if (consumer == nullptr) {
-            innerConsumer = consumer;
+            consumer = innerConsumer;
           } else {
             hipacc_require(innerConsumer == consumer, "In parallel patterns, all parts must have the same consumer.");
           }
@@ -707,6 +707,14 @@ FusiblePartitionBlock::FusiblePartitionBlock(PatternType patternType, HostDataDe
   pattern = pat;
 }
 
+const std::string& FusiblePartitionBlock::KernelInfo::getName() const {
+  return name;
+}
+
+bool FusiblePartitionBlock::KernelInfo::operator < ( const FusiblePartitionBlock::KernelInfo& rhs ) const {
+  return name < rhs.name;
+}
+
 FusiblePartitionBlock::PatternType FusiblePartitionBlock::getPatternType() const {
   switch (pattern) {
     case Pattern::Linear:
@@ -739,6 +747,10 @@ bool FusiblePartitionBlock::hasKernelName(const std::string& name) const {
 bool FusiblePartitionBlock::hasKernel(const HipaccKernel* kernel) const {
   std::string kernelName = kernel->getKernelClass()->getName() + kernel->getName();
   return hasKernelName(kernelName);
+}
+
+bool FusiblePartitionBlock::operator < ( const FusiblePartitionBlock& rhs ) const {
+  return parts < rhs.parts;
 }
 
 void HostDataDeps::addAccessor(
@@ -1253,6 +1265,7 @@ void HostDataDeps::fusibilityAnalysisLinear(bool parallel) {
   if (!readySet.empty()) {
     llvm::errs() << "[Kernel Fusion INFO] fusible kernels from linear analysis:\n";
     for (auto pB : readySet) {
+      fusiblePartitionBlocks.emplace(FusiblePartitionBlock::PatternType::Linear, *pB);
       partitionBlockNames PBNam(convertToNames(pB));
       fusibleSetNames.insert(PBNam);
     }
@@ -1269,6 +1282,8 @@ void HostDataDeps::fusibilityAnalysisLinear(bool parallel) {
       auto destList = new std::list<Process*>;
       destList->push_back(consumerP);
       pB->push_back(destList);
+
+      fusiblePartitionBlocks.emplace(FusiblePartitionBlock::PatternType::Parallel, *pB);
 
       partitionBlockNames PBNam(convertToNames(pB));
       fusibleSetNamesParallel.insert(PBNam);
@@ -1347,6 +1362,7 @@ void HostDataDeps::fusibilityAnalysis() {
     }
     llvm::errs() << "--------------------------------\n";
     fusibleSetNames.insert(PBNam);
+    fusiblePartitionBlocks.emplace(FusiblePartitionBlock::PatternType::Linear, PB);
   }
 }
 
@@ -1666,19 +1682,31 @@ std::set<HostDataDeps::partitionBlockNames> HostDataDeps::getFusibleSetNamesPara
   return fusibleSetNamesParallel;
 }
 
-bool HostDataDeps::isFusible(HipaccKernel *K) {
-  std::string fullName = K->getKernelClass()->getName() + K->getName();
+const std::set<FusiblePartitionBlock>& HostDataDeps::getFusiblePartitionBlocks() const {
+  return fusiblePartitionBlocks;
+}
 
-  // Kernel name has no corresponding process or no execute() is called
-  if (!processMap_.count(fullName)) {
+bool HostDataDeps::isFusible(HipaccKernel *K) {
+  auto fusibleBlock = std::find_if(
+    fusiblePartitionBlocks.begin(),
+    fusiblePartitionBlocks.end(),
+    [K](const FusiblePartitionBlock& block) {
+      return block.hasKernel(K);
+    }
+  );
+
+  if (fusibleBlock == fusiblePartitionBlocks.end()) {
     return false;
   }
-  // get Kernel Partition Block
 
-  bool isLinearFusible = partitionBlockNamesContains(fusibleSetNames, fullName);
-  bool isParallelFusible = partitionBlockNamesContains(fusibleSetNamesParallel, fullName);
-
-  return isLinearFusible || isParallelFusible;
+  switch (fusibleBlock->getPattern()) {
+    case FusiblePartitionBlock::Pattern::Linear:
+      return true;
+    case FusiblePartitionBlock::Pattern::NP2P:
+      return true;
+    default:
+      return false;
+  }
 }
 
 bool HostDataDeps::hasSharedIS(HipaccKernel *K) {
