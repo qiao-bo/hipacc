@@ -524,7 +524,7 @@ class HostDataDeps : public ManagedAnalysis {
     // kernel fusion analysis
     void computeGraphWeight();
     void fusibilityAnalysis();
-    void fusibilityAnalysisLinear(bool parallel = false);
+    void fusibilityAnalysisLinearAndParallel();
     void minCutGlobal(partitionBlock PB, partitionBlock &PBRet0, partitionBlock &PBRet1);
     unsigned minCutPhase(partitionBlock &PB, edgeWeight &curEdgeWeightMap,
         std::pair<Process *, Process *> &ST);
@@ -557,7 +557,7 @@ class HostDataDeps : public ManagedAnalysis {
       DependencyTracker DT(Context, Policy, analysisContext, compilerClasses, dataDeps);
       dataDeps.generateSchedule();
       if (dataDeps.compilerOptions->fuseKernels()) {
-        dataDeps.fusibilityAnalysisLinear(true);
+        dataDeps.fusibilityAnalysisLinearAndParallel();
       }
       if (dataDeps.compilerOptions->useGraph()) {
         dataDeps.buildGraphDependency();

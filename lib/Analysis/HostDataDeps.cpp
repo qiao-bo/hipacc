@@ -1063,7 +1063,7 @@ std::map<std::string, std::set<std::string>> HostDataDeps::getGraphNodeDepMap() 
 }
 
 // detect simple linear producer-consumer data dependence
-void HostDataDeps::fusibilityAnalysisLinear(bool parallel) {
+void HostDataDeps::fusibilityAnalysisLinearAndParallel() {
   partitionBlock workingBlock;
   partitionBlock readyBlock;
 
@@ -1268,7 +1268,7 @@ void HostDataDeps::fusibilityAnalysisLinear(bool parallel) {
   }
 
   // convert readyMapParallel to fusibleSetNamesParallel
-  if (parallel && !readyMapParallel.empty()) {
+  if (!readyMapParallel.empty()) {
     llvm::errs() << "[Kernel Fusion INFO] fusible kernels from parallel analysis:\n";
     for (auto it = readyMapParallel.begin(); it != readyMapParallel.end(); ++it) {
       partitionBlock* pB = it->second;
