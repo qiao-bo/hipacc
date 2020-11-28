@@ -118,10 +118,11 @@ class DependencyTracker : public StmtVisitor<DependencyTracker> {
     }
 };
 
-
+class FusiblePartitionBlock;
 
 class HostDataDeps : public ManagedAnalysis {
   friend class DependencyTracker;
+  friend class FusiblePartitionBlock;
 
   private:
     static const bool DEBUG;
@@ -565,6 +566,55 @@ class HostDataDeps : public ManagedAnalysis {
 
       return &dataDeps;
     }
+};
+
+class FusiblePartitionBlock {
+  public:
+    class KernelInfo;
+    using Part = std::vector<KernelInfo>;
+
+    enum class PatternType {
+      Linear,
+      Parallel
+    };
+
+    enum class Pattern {
+      // Linear patterns
+
+      // Linear point to point
+      P2P,
+      // Linear local to point
+      L2P,
+      // Linear point to local
+      P2L,
+      // Linear local to local
+      L2L,
+
+      // Parallel points to point
+      NP2P,
+      // Parallel locals to point
+      NL2P,
+      // Parallel mixed locals/points to point
+      Mixed2P,
+      // Parallel points to local
+      NP2L,
+      // Parallel locals to local
+      NL2L,
+      // Parallel mixed locals/points to local
+      Mixed2L,
+    };
+
+    struct KernelInfo {
+      std::string name;
+    };
+  
+  private:
+    PatternType patternType;
+    Pattern pattern;
+    std::vector<Part> parts;
+    
+  public:
+    FusiblePartitionBlock(HostDataDeps::partitionBlock& inBlock);
 };
 
 }

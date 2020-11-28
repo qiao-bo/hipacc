@@ -618,6 +618,19 @@ void HostDataDeps::addKernel(
   kernelMap_[KVD] = kernel;
 }
 
+FusiblePartitionBlock::FusiblePartitionBlock(HostDataDeps::partitionBlock& inBlock) {
+  for (auto& inPart : inBlock) {
+    Part part;
+    for (HostDataDeps::Process* inProcess : *inPart) {
+      part.push_back({
+        inProcess->getKernel()->getName()
+      });
+    }
+    parts.push_back(part);
+
+    // TODO
+  }
+}
 
 void HostDataDeps::addAccessor(
     ValueDecl *AVD, HipaccAccessor *acc, ValueDecl* IVD) {
