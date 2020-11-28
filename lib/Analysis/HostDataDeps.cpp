@@ -705,6 +705,35 @@ FusiblePartitionBlock::FusiblePartitionBlock(PatternType patternType, HostDataDe
   }
 
   pattern = pat;
+
+  if (!isPatternFusible()) {
+    std::string patternStr = "unknown";
+    switch (pattern) {
+      case Pattern::Linear:
+        patternStr = "linear";
+        break;
+      case Pattern::NP2P:
+        patternStr = "parallel points-to-point";
+        break;
+      case Pattern::NL2P:
+        patternStr = "parallel locals-to-point";
+        break;
+      case Pattern::Mixed2P:
+        patternStr = "parallel mixed-locals/point-to-point";
+        break;
+      case Pattern::NP2L:
+        patternStr = "parallel points-to-local";
+        break;
+      case Pattern::NL2L:
+        patternStr = "parallel locals-to-local";
+        break;
+      case Pattern::Mixed2L:
+        patternStr = "parallel mixed-locals/point-to-local";
+        break;
+    }
+
+    llvm::errs() << "[Kernel Fusion INFO] hint: Detected " + patternStr + " pattern, which is not yet supported. Skipped fusion for this pattern.\n";
+  }
 }
 
 const std::string& FusiblePartitionBlock::KernelInfo::getName() const {
