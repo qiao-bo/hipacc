@@ -620,7 +620,7 @@ class FusiblePartitionBlock {
       return std::find_if(
         fusibleBlocks.begin(),
         fusibleBlocks.end(),
-        [kernel](const FusiblePartitionBlock& block) {
+        [&](const FusiblePartitionBlock& block) {
           return block.hasKernel(kernel);
         }
       );

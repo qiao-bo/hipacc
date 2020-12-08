@@ -622,9 +622,11 @@ FusiblePartitionBlock::FusiblePartitionBlock(PatternType patternType, HostDataDe
   for (auto* inPart : inBlock) {
     Part part;
     for (HostDataDeps::Process* inProcess : *inPart) {
+      auto kernelName = inProcess->getKernel()->getName();
       part.push_back({
-        inProcess->getKernel()->getName()
+        kernelName
       });
+      kernelNames.insert(kernelName);
     }
     parts.push_back(part);
   }

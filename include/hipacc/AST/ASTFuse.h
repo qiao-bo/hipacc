@@ -152,6 +152,7 @@ class ASTFuse {
       auto block = fusibleBlocks.end();
 
       for (auto k : *l) {
+        // get iterator
         auto innerBlock = FusiblePartitionBlock::findForKernel(k, fusibleBlocks);
         if (block != fusibleBlocks.end()) {
           hipacc_require((block == innerBlock), "The given kernel list contains kernels of distinct partition blocks.");

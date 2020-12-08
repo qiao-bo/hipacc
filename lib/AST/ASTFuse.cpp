@@ -56,7 +56,7 @@ void ASTFuse::insertEpilogFusedKernel() {
 
 
 void ASTFuse::markKernelPositionSublist(std::list<HipaccKernel *> *l) {
-  auto partitionBlock = getPartitionBlockFor(l);
+  const auto& partitionBlock = getPartitionBlockFor(l);
   FusiblePartitionBlock::PatternType patternType = partitionBlock.getPatternType();
 
   // initialize kernel location tags
@@ -227,7 +227,7 @@ void ASTFuse::initKernelFusion() {
 void ASTFuse::HipaccFusion(std::list<HipaccKernel *> *l) {
   hipacc_require((l->size() >=2), "at least two kernels shoud be recorded for fusion");
   
-  auto partitionBlock = getPartitionBlockFor(l);
+  const auto& partitionBlock = getPartitionBlockFor(l);
   FusiblePartitionBlock::PatternType patternType = partitionBlock.getPatternType();
 
   initKernelFusion();
