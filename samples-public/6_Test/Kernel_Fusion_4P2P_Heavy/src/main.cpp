@@ -42,16 +42,17 @@ using namespace hipacc::math;
 class PointOperatorExample : public Kernel<TYPE> {
     private:
         Accessor<TYPE> &in;
+        int n_iter;
 
     public:
-        PointOperatorExample(IterationSpace<TYPE> &iter, Accessor<TYPE> &acc)
-              : Kernel(iter), in(acc) {
+        PointOperatorExample(IterationSpace<TYPE> &iter, Accessor<TYPE> &acc, int n_iter)
+              : Kernel(iter), in(acc), n_iter(n_iter) {
             add_accessor(&in);
         }
 
         void kernel() {
             TYPE interm_pixel = in();
-            for(int i = 0; i < N_ITER; ++i) {
+            for(int i = 0; i < n_iter; ++i) {
                 interm_pixel += 3;
             }
             output() = interm_pixel;
@@ -127,19 +128,19 @@ HIPACC_CODEGEN int main(int argc, const char **argv) {
 
     Image<TYPE> buf0(width, height);
     IterationSpace<TYPE> iter0(buf0);
-    PointOperatorExample pointOp0(iter0, acc0);
+    PointOperatorExample pointOp0(iter0, acc0, N_ITER);
 
     Image<TYPE> buf1(width, height);
     IterationSpace<TYPE> iter1(buf1);
-    PointOperatorExample pointOp1(iter1, acc0);
+    PointOperatorExample pointOp1(iter1, acc0, N_ITER);
 
     Image<TYPE> buf2(width, height);
     IterationSpace<TYPE> iter2(buf2);
-    PointOperatorExample pointOp2(iter2, acc0);
+    PointOperatorExample pointOp2(iter2, acc0, N_ITER);
 
     Image<TYPE> buf3(width, height);
     IterationSpace<TYPE> iter3(buf3);
-    PointOperatorExample pointOp3(iter3, acc0);
+    PointOperatorExample pointOp3(iter3, acc0, N_ITER);
 
     Accessor<TYPE> acc1(buf0);
     Accessor<TYPE> acc2(buf1);
