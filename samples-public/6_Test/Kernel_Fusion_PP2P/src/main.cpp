@@ -81,8 +81,20 @@ void kernel_fusion(TYPE *in, TYPE *out, int width, int height);
  * Main function                                                         *
  *************************************************************************/
 HIPACC_CODEGEN int main(int argc, const char **argv) {
-    const int width = WIDTH;
-    const int height = HEIGHT;
+    int width_arg = WIDTH;
+    int height_arg = HEIGHT;
+
+    if(argc >= 2) {
+        width_arg = std::stoi(argv[1]);
+        height_arg = width_arg;
+    }
+
+    if(argc >= 3) {
+        height_arg = std::stoi(argv[2]);
+    }
+
+    const int width = width_arg;
+    const int height = height_arg;
 
     // host memory for image of width x height pixels, random
     TYPE *input = (TYPE*)load_data<TYPE>(width, height);

@@ -89,8 +89,20 @@ void kernel_fusion(TYPE *in, TYPE *out, float *filter,
  * Main function                                                         *
  *************************************************************************/
 HIPACC_CODEGEN int main(int argc, const char **argv) {
-    const int width = WIDTH;
-    const int height = HEIGHT;
+    int width_arg = WIDTH;
+    int height_arg = HEIGHT;
+
+    if(argc >= 2) {
+        width_arg = std::stoi(argv[1]);
+        height_arg = width_arg;
+    }
+
+    if(argc >= 3) {
+        height_arg = std::stoi(argv[2]);
+    }
+
+    const int width = width_arg;
+    const int height = height_arg;
     const int size_x = SIZE_X;
     const int size_y = SIZE_Y;
     const int offset_x = size_x >> 1;
