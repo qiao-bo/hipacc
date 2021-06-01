@@ -31,6 +31,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <iostream>
+
 #include "hipacc/AST/ASTTranslate.h"
 
 using namespace clang;
@@ -1086,6 +1088,8 @@ Stmt *ASTTranslate::Hipacc(Stmt *S) {
     }
 
     for (size_t p=0; p<Kernel->getPixelsPerThread(); ++p) {
+      currentPptIndex = p;
+
       // clear all stored decls before cloning, otherwise existing
       // VarDecls will be reused and we will miss declarations
       KernelDeclMap.clear();
@@ -1169,6 +1173,8 @@ Stmt *ASTTranslate::Hipacc(Stmt *S) {
       }
     }
 
+    currentPptIndex = 0;
+
     // add label statement if needed (boundary handling), else add body
     if (border_handling) {
       LabelStmt *LS = createLabelStmt(Ctx, LDS[ld_count++],
@@ -1194,6 +1200,14 @@ Stmt *ASTTranslate::Hipacc(Stmt *S) {
   }
 
   return createCompoundStmt(Ctx, kernelBody);
+}
+
+
+Expr *ASTTranslate::createPptVarRefExpr(VarDecl *VD) const {
+  std::string originalIdent = VD->getNameAsString();
+  std::string newIdent = originalIdent.substr(0, originalIdent.rfind("_")) + "_" + std::to_string(currentPptIndex);
+  VarDecl* toRef = createVarDecl(Ctx, Ctx.getTranslationUnitDecl(), newIdent, VD->getType());
+  return createDeclRefExpr(Ctx, toRef);
 }
 
 
@@ -1351,10 +1365,10 @@ Stmt *ASTTranslate::VisitCompoundStmtTranslate(CompoundStmt *S) {
     if (Kernel->isFusible() && fusionVars.bL2LInsertKernelBody &&
             fusionVars.bL2LInsertBeforeSmem) {
       Expr *offset_x, *offset_y;
-      offset_x = createBinaryOperator(Ctx, fusionVars.exprL2LIdXShift,
+      offset_x = createBinaryOperator(Ctx, createPptVarRefExpr(fusionVars.exprL2LIdXShift),
                     createIntegerLiteral(Ctx, fusionVars.curL2LIdXShift),
                       BO_Assign, Ctx.IntTy);
-      offset_y = createBinaryOperator(Ctx, fusionVars.exprL2LIdYShift,
+      offset_y = createBinaryOperator(Ctx, createPptVarRefExpr(fusionVars.exprL2LIdYShift),
                     createIntegerLiteral(Ctx, fusionVars.curL2LIdYShift),
                       BO_Assign, Ctx.IntTy);
       body.push_back(offset_x);
@@ -1633,9 +1647,16 @@ Expr *ASTTranslate::VisitMemberExprTranslate(MemberExpr *E) {
   setExprProps(E, result);
 
   if (Kernel->isFusible() && fusionVars.bReplaceExprInput &&
-          KernelClass->getKernelType() == PointOperator &&
-            Kernel->getImgFromMapping(dyn_cast<FieldDecl>(VD))) {
-    return fusionVars.exprInput;
+          KernelClass->getKernelType() == PointOperator) {
+    HipaccAccessor* accessor = Kernel->getImgFromMapping(dyn_cast<FieldDecl>(VD));
+    if (accessor != nullptr) {
+      if (fusionVars.multipleInputs) {
+        HipaccImage* img = accessor->getImage();
+        return createPptVarRefExpr(fusionVars.exprInputs[img]);
+      } else {
+        return createPptVarRefExpr(fusionVars.exprInput);
+      }
+    }
   }
 
   return result;
@@ -1957,13 +1978,13 @@ Expr *ASTTranslate::VisitCXXOperatorCallExprTranslate(CXXOperatorCallExpr *E) {
       } else {
         TXOld = createIntegerLiteral(Ctx, 0);
       }
-      TX = createBinaryOperator(Ctx, fusionVars.exprL2LIdXShift, TXOld, BO_Add, Ctx.IntTy);
+      TX = createBinaryOperator(Ctx, createPptVarRefExpr(fusionVars.exprL2LIdXShift), TXOld, BO_Add, Ctx.IntTy);
       if (acc->getSizeY() > 1) {
         SYOld = createIntegerLiteral(Ctx, static_cast<int>(fusionVars.curL2LVarAccSizeY/2));
       } else {
         SYOld = createIntegerLiteral(Ctx, 0);
       }
-      SY = createBinaryOperator(Ctx, fusionVars.exprL2LIdYShift, SYOld, BO_Add, Ctx.IntTy);
+      SY = createBinaryOperator(Ctx, createPptVarRefExpr(fusionVars.exprL2LIdYShift), SYOld, BO_Add, Ctx.IntTy);
     } else {
       if (acc->getSizeX() > 1) {
         if (Kernel->isFusible() && compilerOptions.allowMisAlignedAccess()) {
@@ -1992,7 +2013,16 @@ Expr *ASTTranslate::VisitCXXOperatorCallExprTranslate(CXXOperatorCallExpr *E) {
         if (use_shared) {
           result = accessMemShared(DRE, TX, SY);
         } else {
-          result = accessMem(LHS, acc, mem_acc);
+          if (fusionVars.exprInputAccess != nullptr) {
+            if (!fusionVars.bInputAccessProduce) {
+              result = createPptVarRefExpr(fusionVars.exprInputAccess);
+            } else {
+              Expr* genMemAccess = accessMem(LHS, acc, mem_acc);
+              result = createCompoundAssignOperator(Ctx, createPptVarRefExpr(fusionVars.exprInputAccess), genMemAccess, BinaryOperatorKind::BO_Assign, genMemAccess->getType());
+            }
+          } else {
+            result = accessMem(LHS, acc, mem_acc);
+          }
         }
 
         if (Kernel->isFusible() && KernelClass->getKernelType() == LocalOperator) {
@@ -2079,7 +2109,7 @@ Expr *ASTTranslate::VisitCXXOperatorCallExprTranslate(CXXOperatorCallExpr *E) {
 
     if (Kernel->isFusible() && KernelClass->getKernelType() == LocalOperator) {
       fusionVars.bL2LInsertBeforeSmem = true;
-      if (fusionVars.bReplaceExprInput) return fusionVars.exprInput;
+      if (fusionVars.bReplaceExprInput) return createPptVarRefExpr(fusionVars.exprInput);
     }
   }
 
@@ -2087,7 +2117,7 @@ Expr *ASTTranslate::VisitCXXOperatorCallExprTranslate(CXXOperatorCallExpr *E) {
 
   if (Kernel->isFusible() && fusionVars.bP2LReplaceExprInputIdx) {
     ArraySubscriptExpr *tempASE = dyn_cast<ArraySubscriptExpr>(result);
-    tempASE->setRHS(fusionVars.exprP2LInputIdx);
+    tempASE->setRHS(createPptVarRefExpr(fusionVars.exprP2LInputIdx));
   }
 
   return result;
@@ -2179,7 +2209,7 @@ Expr *ASTTranslate::VisitCXXMemberCallExprTranslate(CXXMemberCallExpr *E) {
       setExprProps(E, result);
 
       if (Kernel->isFusible() && fusionVars.bReplaceExprOutput) {
-        return fusionVars.exprOutput;
+        return createPptVarRefExpr(fusionVars.exprOutput);
       }
       return result;
     }
@@ -2421,48 +2451,66 @@ Expr *ASTTranslate::BinningTranslator::translateCXXMemberCallExpr(CXXMemberCallE
 
 void ASTTranslate::setFusionP2PSrcOperator(VarDecl *VD) {
   fusionVars.bReplaceExprOutput = true;
-  fusionVars.exprOutput = createDeclRefExpr(Ctx, VD);
+  fusionVars.exprOutput = CloneVarDecl(VD);
+}
+
+void ASTTranslate::setFusionNP2PSrcOperator(VarDecl *inVD, VarDecl *outVD, bool produce) {
+  fusionVars.bReplaceExprOutput = true;
+  fusionVars.exprOutput = CloneVarDecl(outVD);
+  fusionVars.exprInputAccess = CloneVarDecl(inVD);
+  fusionVars.bInputAccessProduce = produce;
 }
 
 void ASTTranslate::setFusionP2PDestOperator(VarDecl *VD) {
   fusionVars.bReplaceExprInput = true;
-  fusionVars.exprInput = createDeclRefExpr(Ctx, VD);
+  fusionVars.exprInput = CloneVarDecl(VD);
+}
+
+void ASTTranslate::setFusionNP2PDestOperator(const std::map<HipaccImage*, VarDecl*>& imgVarDeclMap) {
+  fusionVars.bReplaceExprInput = true;
+  fusionVars.multipleInputs = true;
+
+  for (auto it = imgVarDeclMap.begin(); it != imgVarDeclMap.end(); ++it) {
+    HipaccImage* img = it->first;
+    VarDecl* VD = it->second;
+    fusionVars.exprInputs[img] = CloneVarDecl(VD);
+  }
 }
 
 void ASTTranslate::setFusionP2PIntermOperator(VarDecl *VDIn, VarDecl *VDOut) {
   fusionVars.bReplaceExprInput = true;
-  fusionVars.exprInput = createDeclRefExpr(Ctx, VDIn);
+  fusionVars.exprInput = CloneVarDecl(VDIn);
   fusionVars.bReplaceExprOutput = true;
-  fusionVars.exprOutput = createDeclRefExpr(Ctx, VDOut);
+  fusionVars.exprOutput = CloneVarDecl(VDOut);
 }
 
 void ASTTranslate::setFusionL2PDestOperator(VarDecl *VD, VarDecl *VDSharedImg, std::string nam) {
   fusionVars.bReplaceExprInput = true;
-  fusionVars.exprInput = createDeclRefExpr(Ctx, VD);
+  fusionVars.exprInput = CloneVarDecl(VD);
   fusionVars.exprSharedImgReg = createDeclRefExpr(Ctx, VDSharedImg);
   fusionVars.exprSharedImgName = nam;
 }
 
 void ASTTranslate::setFusionL2PIntermOperator(VarDecl *VDIn, VarDecl *VDOut, VarDecl *VDSharedImg, std::string nam) {
   fusionVars.bReplaceExprInput = true;
-  fusionVars.exprInput = createDeclRefExpr(Ctx, VDIn);
+  fusionVars.exprInput = CloneVarDecl(VDIn);
   fusionVars.bReplaceExprOutput = true;
-  fusionVars.exprOutput = createDeclRefExpr(Ctx, VDOut);
+  fusionVars.exprOutput = CloneVarDecl(VDOut);
   fusionVars.exprSharedImgReg = createDeclRefExpr(Ctx, VDSharedImg);
   fusionVars.exprSharedImgName = nam;
 }
 
 void ASTTranslate::setFusionP2LSrcOperator(VarDecl *VDReg, VarDecl *VDIdx) {
   fusionVars.bP2LReplaceExprInputIdx = true;
-  fusionVars.exprP2LInputIdx = createDeclRefExpr(Ctx, VDIdx);
+  fusionVars.exprP2LInputIdx = CloneVarDecl(VDIdx);
   fusionVars.bReplaceExprOutput = true;
-  fusionVars.exprOutput = createDeclRefExpr(Ctx, VDReg);
+  fusionVars.exprOutput = CloneVarDecl(VDReg);
 }
 
 void ASTTranslate::setFusionP2LDestOperator(VarDecl *VDReg, VarDecl *VDIdx, Stmt *S) {
   fusionVars.bP2LReplaceInputExprs = true;
-  fusionVars.exprP2LInputIdx = createDeclRefExpr(Ctx, VDIdx);
-  fusionVars.exprOutput = createDeclRefExpr(Ctx, VDReg);
+  fusionVars.exprP2LInputIdx = CloneVarDecl(VDIdx);
+  fusionVars.exprOutput = CloneVarDecl(VDReg);
   fusionVars.stmtP2LProducerBody = S;
 }
 
@@ -2473,9 +2521,9 @@ void ASTTranslate::setFusionL2LSrcOperator(VarDecl *VDRegOut, VarDecl *VDIdX,
   fusionVars.curL2LVarAccSizeX = sz;
   fusionVars.curL2LVarAccSizeY = sz;
   fusionVars.bReplaceExprOutput = true;
-  fusionVars.exprOutput = createDeclRefExpr(Ctx, VDRegOut);
-  fusionVars.exprL2LIdXShift = createDeclRefExpr(Ctx, VDIdX);
-  fusionVars.exprL2LIdYShift = createDeclRefExpr(Ctx, VDIdY);
+  fusionVars.exprOutput = CloneVarDecl(VDRegOut);
+  fusionVars.exprL2LIdXShift = CloneVarDecl(VDIdX);
+  fusionVars.exprL2LIdYShift = CloneVarDecl(VDIdY);
 }
 
 void ASTTranslate::setFusionL2LEndSrcOperator(std::queue<Stmt *> stmtsLocal,
@@ -2484,8 +2532,8 @@ void ASTTranslate::setFusionL2LEndSrcOperator(std::queue<Stmt *> stmtsLocal,
   fusionVars.curL2LVarAccSizeX = sz;
   fusionVars.curL2LVarAccSizeY = sz;
   fusionVars.stmtsL2LProducerKernel = stmtsLocal;
-  fusionVars.exprL2LIdXShift = createDeclRefExpr(Ctx, VDIdX);
-  fusionVars.exprL2LIdYShift = createDeclRefExpr(Ctx, VDIdY);
+  fusionVars.exprL2LIdXShift = CloneVarDecl(VDIdX);
+  fusionVars.exprL2LIdYShift = CloneVarDecl(VDIdY);
   fusionVars.bL2LReplaceBody = true;
 }
 
@@ -2499,15 +2547,16 @@ void ASTTranslate::setFusionL2LDestOperator(std::queue<Stmt *> stmtsLocal,
   fusionVars.bL2LRecordBody = true;
   fusionVars.bL2LRecordBorder = true;
   fusionVars.bReplaceExprInput = true;
-  fusionVars.exprInput = createDeclRefExpr(Ctx, VDRegIn);
-  fusionVars.exprL2LIdXShift = createDeclRefExpr(Ctx, VDIdX);
-  fusionVars.exprL2LIdYShift = createDeclRefExpr(Ctx, VDIdY);
+  fusionVars.exprInput = CloneVarDecl(VDRegIn);
+  fusionVars.exprL2LIdXShift = CloneVarDecl(VDIdX);
+  fusionVars.exprL2LIdYShift = CloneVarDecl(VDIdY);
 }
 
 std::queue<Stmt *> ASTTranslate::getFusionLocalKernelBody() {
   return fusionVars.stmtsL2LKernel;
 }
 
+// TODO This likely needs to be adapted in order to support PPT + fusion
 Stmt *ASTTranslate::getFusionSharedInputStmt(VarDecl *VDIn) {
   BinaryOperator *bOShared;
   for (auto param : kernelDecl->parameters()) {

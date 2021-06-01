@@ -58,6 +58,7 @@
 #include <algorithm>
 #include <iostream>
 #include <sstream>
+#include <unordered_set>
 
 //#define PRINT_DEBUG
 
@@ -118,10 +119,11 @@ class DependencyTracker : public StmtVisitor<DependencyTracker> {
     }
 };
 
-
+class FusiblePartitionBlock;
 
 class HostDataDeps : public ManagedAnalysis {
   friend class DependencyTracker;
+  friend class FusiblePartitionBlock;
 
   private:
     static const bool DEBUG;
@@ -166,7 +168,7 @@ class HostDataDeps : public ManagedAnalysis {
     using partitionBlock = std::vector<std::list<Process*> *>;
     partitionBlock applicationGraph;
     using partitionBlockNames = std::vector<std::list<std::string>>;
-    std::set<partitionBlockNames> fusibleSetNames;
+    std::set<FusiblePartitionBlock> fusiblePartitionBlocks;
     using edgeWeight = std::map<std::pair<Process *, Process *>, unsigned>;
     edgeWeight edgeWeightMap_;
 
@@ -485,10 +487,44 @@ class HostDataDeps : public ManagedAnalysis {
     std::string getMemcpyNodeName(std::string imgDst, std::string imgSrc, std::string direction);
     std::string getKernelNodeName(std::string kernelName);
 
+    // helper to convert a partitionBlock to a block of the respective kernel names
+    static partitionBlockNames convertToNames(const partitionBlock* pB) {
+      partitionBlockNames PBNam;
+      llvm::errs() << " [ ";
+      for (auto pL : *pB) {
+        llvm::errs() << "{";
+        std::list<std::string> lNam;
+        for (auto p : *pL) {
+          std::string kname = p->getKernel()->getName();
+          llvm::errs() << " --> " << kname;
+          lNam.push_back(kname);
+        }
+        llvm::errs() << "} ";
+        PBNam.push_back(lNam);
+      }
+      llvm::errs() << "] \n";
+
+      return PBNam;
+    }
+
+    static bool partitionBlockNamesContains(
+      const std::set<partitionBlockNames>& haystack,
+      const std::string& needle
+    ) {
+      for (const auto& PBN : haystack) {
+        if (std::any_of(PBN.begin(), PBN.end(), [&](std::list<std::string> lNam){
+          return (std::find(lNam.begin(), lNam.end(), needle) != lNam.end()) &&
+            (lNam.size() > 1);})) {
+          return true;
+        }
+      }
+      return false;
+    }
+
     // kernel fusion analysis
     void computeGraphWeight();
     void fusibilityAnalysis();
-    void fusibilityAnalysisLinear();
+    void fusibilityAnalysisLinearAndParallel();
     void minCutGlobal(partitionBlock PB, partitionBlock &PBRet0, partitionBlock &PBRet1);
     unsigned minCutPhase(partitionBlock &PB, edgeWeight &curEdgeWeightMap,
         std::pair<Process *, Process *> &ST);
@@ -499,14 +535,13 @@ class HostDataDeps : public ManagedAnalysis {
     std::string getSharedISName(HipaccKernel *K);
     bool isSrc(Process *P);
     bool isDest(Process *P);
-    std::set<partitionBlockNames> getFusibleSetNames() const;
+    const std::set<FusiblePartitionBlock>& getFusiblePartitionBlocks() const;
     std::string getGraphMemcpyNodeName(std::string dst, std::string src, std::string dir);
     std::string getGraphKernelNodeName(std::string kernelName);
     std::set<std::string> getGraphMemcpyNodeDepOn(std::string dst, std::string src, std::string dir);
     std::set<std::string> getGraphKernelNodeDepOn(std::string kernelName);
     std::map<std::string, std::set<std::string>> getGraphNodeDepMap() const;
     std::vector<std::string> getOutputImageNames();
-
 
     static HostDataDeps *parse(ASTContext &Context,
         PrintingPolicy &Policy,
@@ -522,7 +557,7 @@ class HostDataDeps : public ManagedAnalysis {
       DependencyTracker DT(Context, Policy, analysisContext, compilerClasses, dataDeps);
       dataDeps.generateSchedule();
       if (dataDeps.compilerOptions->fuseKernels()) {
-        dataDeps.fusibilityAnalysisLinear();
+        dataDeps.fusibilityAnalysisLinearAndParallel();
       }
       if (dataDeps.compilerOptions->useGraph()) {
         dataDeps.buildGraphDependency();
@@ -530,6 +565,89 @@ class HostDataDeps : public ManagedAnalysis {
 
       return &dataDeps;
     }
+};
+
+class FusiblePartitionBlock {
+  public:
+    class KernelInfo;
+    using Part = std::vector<KernelInfo>;
+
+    enum class PatternType {
+      Linear,
+      Parallel
+    };
+
+    enum class Pattern {
+      // Linear patterns
+      Linear,
+
+      // Parallel patterns
+
+      // Parallel points to point
+      NP2P,
+      // Parallel locals to point
+      NL2P,
+      // Parallel mixed locals/points to point
+      Mixed2P,
+      // Parallel points to local
+      NP2L,
+      // Parallel locals to local
+      NL2L,
+      // Parallel mixed locals/points to local
+      Mixed2L
+    };
+
+    struct KernelInfo {
+      std::string name;
+
+      const std::string& getName() const;
+
+      bool operator < ( const KernelInfo& rhs ) const;
+    };
+  
+  private:
+    Pattern pattern;
+    std::vector<Part> parts;
+    std::unordered_set<std::string> kernelNames;
+    
+  public:
+    FusiblePartitionBlock(PatternType patternType, HostDataDeps::partitionBlock& inBlock);
+
+    static std::set<FusiblePartitionBlock>::iterator findForKernel(
+      const HipaccKernel* kernel,
+      const std::set<FusiblePartitionBlock>& fusibleBlocks
+    ) {
+      return std::find_if(
+        fusibleBlocks.begin(),
+        fusibleBlocks.end(),
+        [&](const FusiblePartitionBlock& block) {
+          return block.hasKernel(kernel);
+        }
+      );
+    }
+
+    /**
+     * Check whether the pattern of this block is fusible.
+     */
+    bool isPatternFusible() const {
+      // Return true if the pattern is fusible by the current ASTFuse tool, false otherwise.
+
+      switch (pattern) {
+        case FusiblePartitionBlock::Pattern::Linear:
+        case FusiblePartitionBlock::Pattern::NP2P:
+          return true;
+        default:
+          return false;
+      }
+    }
+
+    PatternType getPatternType() const;
+    Pattern getPattern() const;
+    const std::vector<Part>& getParts() const;
+    bool hasKernelName(const std::string& name) const;
+    bool hasKernel(const HipaccKernel* kernel) const;
+
+    bool operator < ( const FusiblePartitionBlock& rhs ) const;
 };
 
 }

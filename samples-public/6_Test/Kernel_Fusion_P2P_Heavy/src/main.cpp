@@ -33,6 +33,7 @@
 #define WIDTH 512
 #define HEIGHT 512
 #define TYPE uchar
+#define N_ITER 1024
 
 using namespace hipacc;
 using namespace hipacc::math;
@@ -50,7 +51,9 @@ class PointOperatorExample : public Kernel<TYPE> {
 
         void kernel() {
             TYPE interm_pixel = in();
-            interm_pixel += 3;
+            for(int i = 0; i < N_ITER; ++i) {
+                interm_pixel += 3;
+            }
             output() = interm_pixel;
         }
 };
@@ -62,20 +65,8 @@ void kernel_fusion(TYPE *in, TYPE *out, int width, int height);
  * Main function                                                         *
  *************************************************************************/
 HIPACC_CODEGEN int main(int argc, const char **argv) {
-	int width_arg = WIDTH;
-	int height_arg = HEIGHT;
-
-	if(argc >= 2) {
-		width_arg = std::stoi(argv[1]);
-		height_arg = width_arg;
-	}
-
-	if(argc >= 3) {
-		height_arg = std::stoi(argv[2]);
-	}
-
-    const int width = width_arg;
-    const int height = height_arg;
+    const int width = WIDTH;
+    const int height = HEIGHT;
 
     // host memory for image of width x height pixels, random
     TYPE *input = (TYPE*)load_data<TYPE>(width, height);
@@ -98,18 +89,18 @@ HIPACC_CODEGEN int main(int argc, const char **argv) {
 
     Accessor<TYPE> acc1(buf0);
     Image<TYPE> buf1(width, height);
-    IterationSpace<TYPE> iter1(out);
+    IterationSpace<TYPE> iter1(buf1);
     PointOperatorExample pointOp1(iter1, acc1);
 
-    //Accessor<TYPE> acc2(buf1);
-    //Image<TYPE> buf2(width, height);
-    //IterationSpace<TYPE> iter2(out);
-    //PointOperatorExample pointOp2(iter2, acc2);
+    Accessor<TYPE> acc2(buf1);
+    Image<TYPE> buf2(width, height);
+    IterationSpace<TYPE> iter2(out);
+    PointOperatorExample pointOp2(iter2, acc2);
 
     // execution after all decls
     pointOp0.execute();
     pointOp1.execute();
-    //pointOp2.execute();
+    pointOp2.execute();
 
     // get pointer to result data
     TYPE *output = out.data();
@@ -130,7 +121,9 @@ HIPACC_CODEGEN int main(int argc, const char **argv) {
 void point_kernel(TYPE *in, TYPE *out, int width, int height) {
     for (int p = 0; p < width*height; ++p) {
         TYPE interm_pixel = in[p];
-        interm_pixel += 3;
+        for(int i = 0; i < N_ITER; ++i) {
+            interm_pixel += 3;
+        }
         out[p] = interm_pixel;
     }
 }
@@ -139,8 +132,8 @@ void kernel_fusion(TYPE *in, TYPE *out, int width, int height) {
   TYPE *ref_buf0 = new TYPE[width*height];
   TYPE *ref_buf1 = new TYPE[width*height];
   point_kernel(in, ref_buf0, width, height);
-  point_kernel(ref_buf0, out, width, height);
-  //point_kernel(ref_buf1, out, width, height);
+  point_kernel(ref_buf0, ref_buf1, width, height);
+  point_kernel(ref_buf1, out, width, height);
   delete[] ref_buf0;
   delete[] ref_buf1;
 }

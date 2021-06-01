@@ -618,6 +618,171 @@ void HostDataDeps::addKernel(
   kernelMap_[KVD] = kernel;
 }
 
+FusiblePartitionBlock::FusiblePartitionBlock(PatternType patternType, HostDataDeps::partitionBlock& inBlock) {
+  for (auto* inPart : inBlock) {
+    Part part;
+    for (HostDataDeps::Process* inProcess : *inPart) {
+      auto kernelName = inProcess->getKernel()->getName();
+      part.push_back({
+        kernelName
+      });
+      kernelNames.insert(kernelName);
+    }
+    parts.push_back(part);
+  }
+
+  Pattern pat;
+
+  switch (patternType) {
+    default:
+      hipacc_require(false, "Invalid pattern type.");
+      exit(1); // This will never be reached
+    case PatternType::Linear:
+      pat = Pattern::Linear;
+      break;
+    case PatternType::Parallel:
+      // TODO
+      std::list<HostDataDeps::Process*> producers;
+      HostDataDeps::Process* consumer = nullptr;
+      for (auto* inPart : inBlock) {
+        hipacc_require(inPart->size() == 1 || inPart->size() == 2, "Invalid block part length.");
+
+        if (inPart->size() == 2) {
+          HostDataDeps::Process* innerConsumer = *std::next(inPart->begin());
+          if (consumer == nullptr) {
+            consumer = innerConsumer;
+          } else {
+            hipacc_require(innerConsumer == consumer, "In parallel patterns, all parts must have the same consumer.");
+          }
+        }
+
+        producers.push_back(inPart->front());
+      }
+
+      hipacc_require(consumer != nullptr, "Patterns with no consumers are not allowed.");
+      hipacc_require(producers.size() > 1, "In parallel patterns, more than one producer must exist.");
+
+      auto consumerKT = consumer->getKernel()->getKernelClass()->getKernelType();
+      hipacc_require(consumerKT == PointOperator || consumerKT == LocalOperator,
+        "In parallel patterns, only local or point operators are supported");
+
+      auto firstProducerKT = producers.front()->getKernel()->getKernelClass()->getKernelType();
+      hipacc_require(firstProducerKT == PointOperator || firstProducerKT == LocalOperator,
+        "In parallel patterns, only local or point operators are supported");
+
+      if (consumerKT == PointOperator) {
+        pat = Pattern::NP2P;
+      } else {
+        pat = Pattern::NP2L;
+      }
+
+      for (auto* producer : producers) {
+        auto producerKT = producer->getKernel()->getKernelClass()->getKernelType();
+        hipacc_require(producerKT == PointOperator || producerKT == LocalOperator,
+          "In parallel patterns, only local or point operators are supported");
+        
+        if (producerKT != firstProducerKT) { // Mixed producer kernel types
+          if (consumerKT == PointOperator) {
+            pat = Pattern::Mixed2P;
+          } else {
+            pat = Pattern::Mixed2L;
+          }
+          break;
+        } else if (producerKT == PointOperator) { // Only point producers
+          if (consumerKT == PointOperator) {
+            pat = Pattern::NP2P;
+          } else {
+            pat = Pattern::NP2L;
+          }
+        } else { // Only local producers
+          if (consumerKT == PointOperator) {
+            pat = Pattern::NL2P;
+          } else {
+            pat = Pattern::NL2L;
+          }
+        }
+      }
+
+      break;
+  }
+
+  pattern = pat;
+
+  if (!isPatternFusible()) {
+    std::string patternStr = "unknown";
+    switch (pattern) {
+      case Pattern::Linear:
+        patternStr = "linear";
+        break;
+      case Pattern::NP2P:
+        patternStr = "parallel points-to-point";
+        break;
+      case Pattern::NL2P:
+        patternStr = "parallel locals-to-point";
+        break;
+      case Pattern::Mixed2P:
+        patternStr = "parallel mixed-locals/point-to-point";
+        break;
+      case Pattern::NP2L:
+        patternStr = "parallel points-to-local";
+        break;
+      case Pattern::NL2L:
+        patternStr = "parallel locals-to-local";
+        break;
+      case Pattern::Mixed2L:
+        patternStr = "parallel mixed-locals/point-to-local";
+        break;
+    }
+
+    llvm::errs() << "[Kernel Fusion INFO] hint: Detected " + patternStr + " pattern, which is not yet supported. Skipped fusion for this pattern.\n";
+  }
+}
+
+const std::string& FusiblePartitionBlock::KernelInfo::getName() const {
+  return name;
+}
+
+bool FusiblePartitionBlock::KernelInfo::operator < ( const FusiblePartitionBlock::KernelInfo& rhs ) const {
+  return name < rhs.name;
+}
+
+FusiblePartitionBlock::PatternType FusiblePartitionBlock::getPatternType() const {
+  switch (pattern) {
+    case Pattern::Linear:
+      return PatternType::Linear;
+    case Pattern::NP2P:
+    case Pattern::NL2P:
+    case Pattern::Mixed2P:
+    case Pattern::NP2L:
+    case Pattern::NL2L:
+    case Pattern::Mixed2L:
+      return PatternType::Parallel;
+  }
+
+  hipacc_require(false, "FusiblePartitionBlock has invalid pattern.");
+  exit(1); // This will never be reached
+}
+
+FusiblePartitionBlock::Pattern FusiblePartitionBlock::getPattern() const {
+  return pattern;
+}
+
+const std::vector<FusiblePartitionBlock::Part>& FusiblePartitionBlock::getParts() const {
+  return parts;
+}
+
+bool FusiblePartitionBlock::hasKernelName(const std::string& name) const {
+  return kernelNames.find(name) != kernelNames.end();
+}
+
+bool FusiblePartitionBlock::hasKernel(const HipaccKernel* kernel) const {
+  std::string kernelName = kernel->getKernelClass()->getName() + kernel->getName();
+  return hasKernelName(kernelName);
+}
+
+bool FusiblePartitionBlock::operator < ( const FusiblePartitionBlock& rhs ) const {
+  return parts < rhs.parts;
+}
 
 void HostDataDeps::addAccessor(
     ValueDecl *AVD, HipaccAccessor *acc, ValueDecl* IVD) {
@@ -900,9 +1065,10 @@ std::map<std::string, std::set<std::string>> HostDataDeps::getGraphNodeDepMap() 
 }
 
 // detect simple linear producer-consumer data dependence
-void HostDataDeps::fusibilityAnalysisLinear() {
+void HostDataDeps::fusibilityAnalysisLinearAndParallel() {
   partitionBlock workingBlock;
   partitionBlock readyBlock;
+
   for (auto pL : applicationGraph) {
     Process* producerP = pL->front();
     KernelType KT = producerP->getKernel()->getKernelClass()->getKernelType();
@@ -911,6 +1077,7 @@ void HostDataDeps::fusibilityAnalysisLinear() {
       workingBlock.push_back(pL);
     }
   }
+
   for (auto pL : workingBlock) {
     Process* consumerP = pL->back();
     KernelType KT = consumerP->getKernel()->getKernelClass()->getKernelType();
@@ -953,6 +1120,73 @@ void HostDataDeps::fusibilityAnalysisLinear() {
       }
     }
   }
+
+  
+  std::map<Process*, partitionBlock*> readyMapParallel;
+
+  for (auto pL : workingBlock) {
+    Process* consumerP = pL->back();
+
+    if (readyMapParallel.find(consumerP) != readyMapParallel.end()) {
+      // if respective chunk is already in map, ignore it
+      continue;
+    }
+    
+    partitionBlock* parallelBlock = new partitionBlock; 
+    Space* lastParallelInSpace = nullptr;
+
+    for (auto poL : applicationGraph) {
+      if (pL == poL) {
+        // Only consider distinct lists
+        continue;
+      }
+      
+      Process* innerProducerP = poL->front();
+      Process* innerConsumerP = poL->back();
+
+      if (
+        poL->size() == 2 &&
+        innerConsumerP == consumerP
+      ) {
+        std::vector<Space*> inSpaces = innerProducerP->getInSpaces();
+        if (inSpaces.size() == 1) {
+          Space* inSpace = inSpaces.front();
+          if (lastParallelInSpace == nullptr) {
+            lastParallelInSpace = inSpace;
+          }
+          if (lastParallelInSpace == inSpace) {
+            parallelBlock->push_back(poL);
+          }
+        }
+      }
+    }
+
+    if (!parallelBlock->empty()) {
+      parallelBlock->push_back(pL);
+      bool isParallelyFusible = true;
+      for (Space* inSpace : consumerP->getInSpaces()) {
+        Process* srcP = inSpace->getSrcProcess();
+        bool found = std::find_if(
+          parallelBlock->begin(),
+          parallelBlock->end(),
+          [srcP](std::list<Process*>* e) {
+            return e->front() == srcP;
+          }
+        ) != parallelBlock->end();
+
+        // external input to consumer
+        if (!found) {
+          isParallelyFusible = false;
+          break;
+        }
+      }
+      if (isParallelyFusible) {
+        readyMapParallel[consumerP] = parallelBlock;
+      }
+    }
+  }
+
+  // At this point, readyMapParallel contains all parallely fusible blocks (as values)
 
   // group all fusible pairs into partition blocks
   std::set<partitionBlock*> readySet;
@@ -1031,21 +1265,23 @@ void HostDataDeps::fusibilityAnalysisLinear() {
   if (!readySet.empty()) {
     llvm::errs() << "[Kernel Fusion INFO] fusible kernels from linear analysis:\n";
     for (auto pB : readySet) {
-      partitionBlockNames PBNam;
-      llvm::errs() << " [ ";
-      for (auto pL : *pB) {
-        llvm::errs() << "{";
-        std::list<std::string> lNam;
-        for (auto p : *pL) {
-          std::string kname = p->getKernel()->getName();
-          llvm::errs() << " --> " << kname;
-          lNam.push_back(kname);
-        }
-        llvm::errs() << "} ";
-        PBNam.push_back(lNam);
-      }
-      llvm::errs() << "] \n";
-      fusibleSetNames.insert(PBNam);
+      fusiblePartitionBlocks.emplace(FusiblePartitionBlock::PatternType::Linear, *pB);
+    }
+  }
+
+  // convert readyMapParallel to fusibleSetNamesParallel
+  if (!readyMapParallel.empty()) {
+    llvm::errs() << "[Kernel Fusion INFO] fusible kernels from parallel analysis:\n";
+    for (auto it = readyMapParallel.begin(); it != readyMapParallel.end(); ++it) {
+      partitionBlock* pB = it->second;
+
+      // Add consumer as destination block for completeness
+      Process* consumerP = it->first;
+      auto destList = new std::list<Process*>;
+      destList->push_back(consumerP);
+      pB->push_back(destList);
+
+      fusiblePartitionBlocks.emplace(FusiblePartitionBlock::PatternType::Parallel, *pB);
     }
   }
 }
@@ -1120,7 +1356,7 @@ void HostDataDeps::fusibilityAnalysis() {
       PBNam.push_back(lNam);
     }
     llvm::errs() << "--------------------------------\n";
-    fusibleSetNames.insert(PBNam);
+    fusiblePartitionBlocks.emplace(FusiblePartitionBlock::PatternType::Linear, PB);
   }
 }
 
@@ -1432,28 +1668,18 @@ bool HostDataDeps::isDest(Process *P) {
   return s->getDstProcesses().empty();
 }
 
-std::set<HostDataDeps::partitionBlockNames> HostDataDeps::getFusibleSetNames() const {
-  return fusibleSetNames;
+const std::set<FusiblePartitionBlock>& HostDataDeps::getFusiblePartitionBlocks() const {
+  return fusiblePartitionBlocks;
 }
 
 bool HostDataDeps::isFusible(HipaccKernel *K) {
-  bool isFusible = false;
-  std::string fullName = K->getKernelClass()->getName() + K->getName();
+  auto fusibleBlock = FusiblePartitionBlock::findForKernel(K, fusiblePartitionBlocks);
 
-  // Kernel name has no corresponding process or no execute() is called
-  if (!processMap_.count(fullName)) {
-    return isFusible;
+  if (fusibleBlock == fusiblePartitionBlocks.end()) {
+    return false;
   }
-  // get Kernel Partition Block
-  for (auto PBN : fusibleSetNames) {
-    if (std::any_of(PBN.begin(), PBN.end(), [&](std::list<std::string> lNam){
-      return (std::find(lNam.begin(), lNam.end(), fullName) != lNam.end()) &&
-        (lNam.size() > 1);})) {
-      isFusible = true;
-      break;
-    }
-  }
-  return isFusible;
+
+  return fusibleBlock->isPatternFusible();
 }
 
 bool HostDataDeps::hasSharedIS(HipaccKernel *K) {

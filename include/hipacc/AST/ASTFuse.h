@@ -114,10 +114,21 @@ class ASTFuse {
       SubListPosition Local2PointLoc = Undefined;
       SubListPosition Point2LocalLoc = Undefined;
       SubListPosition Local2LocalLoc = Undefined;
+      FusiblePartitionBlock::PatternType patternType;
+
+      FusionTypeTags(FusiblePartitionBlock::PatternType patternType) : patternType(patternType) {}
     };
+
+    struct KernelListLocation {
+      // The location of the block in a set of partitionBlockNames
+      unsigned blockLocation;
+
+      // The location of the respective kernel list in a partitionBlockNames
+      unsigned listLocation;
+    };
+
     std::map<HipaccKernel *, FusionTypeTags *> FusibleKernelSubListPosMap;
-    std::map<std::string, std::tuple<unsigned, unsigned>> FusibleKernelBlockLocation;
-    std::set<std::vector<std::list<std::string>>> fusibleSetNames;
+    std::map<std::string, KernelListLocation> FusibleKernelBlockLocation;
     std::vector<std::list<HipaccKernel*> *> fusibleKernelSet;
 
     // member functions
@@ -128,11 +139,31 @@ class ASTFuse {
     FunctionDecl *createFusedKernelDecl(std::list<HipaccKernel *> *l);
     void insertPrologFusedKernel();
     void insertEpilogFusedKernel();
-    void createReg4FusionVarDecl(QualType QT);
-    void createIdx4FusionVarDecl();
-    void createGidVarDecl();
+    void createReg4FusionVarDecl(QualType QT, unsigned int ppt);
+    void createIdx4FusionVarDecl(unsigned int ppt);
+    void createGidVarDecl(unsigned int ppt);
     void markKernelPositionSublist(std::list<HipaccKernel *> *l);
     void recomputeMemorySizeLocalFusion(std::list<HipaccKernel *> *l);
+
+    const FusiblePartitionBlock& getPartitionBlockFor(std::list<HipaccKernel *> *l) {
+      hipacc_require((!l->empty()), "There is no fusion type for empty lists.");
+
+      auto fusibleBlocks = dataDeps->getFusiblePartitionBlocks();
+      auto block = fusibleBlocks.end();
+
+      for (auto k : *l) {
+        // get iterator
+        auto innerBlock = FusiblePartitionBlock::findForKernel(k, fusibleBlocks);
+        if (block != fusibleBlocks.end()) {
+          hipacc_require((block == innerBlock), "The given kernel list contains kernels of distinct partition blocks.");
+        } else {
+          block = innerBlock;
+        }
+      }
+
+      hipacc_require(block != fusibleBlocks.end(), "The given kernel list did not correspond to a partition block.");
+      return *block;
+    }
 
   public:
     ASTFuse(ASTContext& Ctx, DiagnosticsEngine &Diags, hipacc::Builtin::Context &builtins,
@@ -150,24 +181,30 @@ class ASTFuse {
       fusionRegVarCount(0),
       fusionIdxVarCount(0)
       {
-        fusibleSetNames = dataDeps->getFusibleSetNames();
+        unsigned nFusibleKernelBlockLocations = 0;
+        for (const auto& fusibleBlock : dataDeps->getFusiblePartitionBlocks()) { // block level
+          if (!fusibleBlock.isPatternFusible()) {
+            continue;
+          }
 
-        // unpack fusible kernel info, one kernel per PB
-        // TODO, merge parallel kernels
-        unsigned PBlockID;
-        PBlockID = 0;
-        for (auto PBN : fusibleSetNames) { // block level
           unsigned KernelVecID = 0;
-          for (auto sL : PBN) {              // vector level
-            auto pos = std::make_tuple(PBlockID, KernelVecID);
-            auto nam = sL.front();
+          for (const auto& part : fusibleBlock.getParts()) {              // vector level
+            KernelListLocation pos = {
+              nFusibleKernelBlockLocations,
+              KernelVecID
+            };
+
+            auto nam = part.front().getName();
+            bool locExists = FusibleKernelBlockLocation.find(nam) != FusibleKernelBlockLocation.end();
+            hipacc_require(!locExists, "Kernel lists cannot be added twice");
+
             FusibleKernelBlockLocation[nam] = pos;
             KernelVecID++;
           }
           // create a list for each partion block
           std::list<HipaccKernel*> *list = new std::list<HipaccKernel*>;
           fusibleKernelSet.push_back(list);
-          PBlockID++;
+          nFusibleKernelBlockLocations++;
         }
       }
 

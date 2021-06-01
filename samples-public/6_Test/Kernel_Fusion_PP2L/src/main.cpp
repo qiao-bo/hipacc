@@ -32,6 +32,8 @@
 
 #define WIDTH 512
 #define HEIGHT 512
+#define SIZE_X 5
+#define SIZE_Y 5
 #define TYPE uchar
 
 using namespace hipacc;
@@ -55,27 +57,53 @@ class PointOperatorExample : public Kernel<TYPE> {
         }
 };
 
+class LocalOutOperatorExample : public Kernel<TYPE> {
+  private:
+    Accessor<TYPE> &in1;
+    Accessor<TYPE> &in2;
+    Mask<float> &mask;
+
+  public:
+    LocalOutOperatorExample(
+        IterationSpace<TYPE> &iter,
+        Accessor<TYPE> &acc1,
+        Accessor<TYPE> &acc2,
+        Mask<float> &mask)
+          : Kernel(iter), in1(acc1), in2(acc2), mask(mask) {
+        add_accessor(&in1);
+        add_accessor(&in2);
+    }
+
+    void kernel() {
+        output() = (TYPE)(convolve(mask, Reduce::SUM, [&] () -> float {
+                return (mask() * in1(mask)) + (mask() * in2(mask));
+            }) + 0.5f);
+    }
+};
+
 // forward declaration of reference implementation
-void kernel_fusion(TYPE *in, TYPE *out, int width, int height);
+void kernel_fusion(TYPE *in, TYPE *out, float *filter,
+                   int size_x, int size_y, int width, int height);
 
 /*************************************************************************
  * Main function                                                         *
  *************************************************************************/
 HIPACC_CODEGEN int main(int argc, const char **argv) {
-	int width_arg = WIDTH;
-	int height_arg = HEIGHT;
+    const int width = WIDTH;
+    const int height = HEIGHT;
+    const int size_x = SIZE_X;
+    const int size_y = SIZE_Y;
+    const int offset_x = size_x >> 1;
+    const int offset_y = size_y >> 1;
 
-	if(argc >= 2) {
-		width_arg = std::stoi(argv[1]);
-		height_arg = width_arg;
-	}
-
-	if(argc >= 3) {
-		height_arg = std::stoi(argv[2]);
-	}
-
-    const int width = width_arg;
-    const int height = height_arg;
+    // convolution filter mask
+    const float coef[SIZE_Y][SIZE_X] = {
+        { 0.005008f, 0.017300f, 0.026151f, 0.017300f, 0.005008f },
+        { 0.017300f, 0.059761f, 0.090339f, 0.059761f, 0.017300f },
+        { 0.026151f, 0.090339f, 0.136565f, 0.090339f, 0.026151f },
+        { 0.017300f, 0.059761f, 0.090339f, 0.059761f, 0.017300f },
+        { 0.005008f, 0.017300f, 0.026151f, 0.017300f, 0.005008f }
+    };
 
     // host memory for image of width x height pixels, random
     TYPE *input = (TYPE*)load_data<TYPE>(width, height);
@@ -89,35 +117,38 @@ HIPACC_CODEGEN int main(int argc, const char **argv) {
     Image<TYPE> in(width, height, input);
     Image<TYPE> out(width, height);
 
-    // test point to point kernel fusion
-    // e.g., p -> p -> ... -> p
+    // test point-point to local kernel fusion
+
     Accessor<TYPE> acc0(in);
     Image<TYPE> buf0(width, height);
     IterationSpace<TYPE> iter0(buf0);
     PointOperatorExample pointOp0(iter0, acc0);
 
-    Accessor<TYPE> acc1(buf0);
+    Accessor<TYPE> acc1(in);
     Image<TYPE> buf1(width, height);
-    IterationSpace<TYPE> iter1(out);
+    IterationSpace<TYPE> iter1(buf1);
     PointOperatorExample pointOp1(iter1, acc1);
 
-    //Accessor<TYPE> acc2(buf1);
-    //Image<TYPE> buf2(width, height);
-    //IterationSpace<TYPE> iter2(out);
-    //PointOperatorExample pointOp2(iter2, acc2);
+    Mask<float> mask(coef);
+    BoundaryCondition<TYPE> bound0(buf0, mask, Boundary::CLAMP);
+    Accessor<TYPE> acc2(bound0);
+    BoundaryCondition<TYPE> bound1(buf1, mask, Boundary::CLAMP);
+    Accessor<TYPE> acc3(bound1);
+    IterationSpace<TYPE> iter2(out);
+    LocalOutOperatorExample localOutOp(iter2, acc2, acc3, mask);
 
     // execution after all decls
     pointOp0.execute();
     pointOp1.execute();
-    //pointOp2.execute();
+    localOutOp.execute();
 
     // get pointer to result data
     TYPE *output = out.data();
 
     //************************************************************************//
     std::cout << "Calculating reference ..." << std::endl;
-    kernel_fusion(input, ref_out, width, height);
-    compare_results(output, ref_out, width, height);
+    kernel_fusion(input, ref_out, (float*)coef, size_x, size_y, width, height);
+    compare_results(output, ref_out, width, height, offset_x, offset_y);
 
     // free memory
     delete[] input;
@@ -135,12 +166,39 @@ void point_kernel(TYPE *in, TYPE *out, int width, int height) {
     }
 }
 
-void kernel_fusion(TYPE *in, TYPE *out, int width, int height) {
+void local_out_kernel(TYPE *in1, TYPE *in2, TYPE *out, float *filter,
+                     int size_x, int size_y, int width, int height) {
+    int anchor_x = size_x >> 1;
+    int anchor_y = size_y >> 1;
+    int upper_x = width  - anchor_x;
+    int upper_y = height - anchor_y;
+
+    for (int y=anchor_y; y<upper_y; ++y) {
+        for (int x=anchor_x; x<upper_x; ++x) {
+            float sum = 0.5f;
+            for (int yf = -anchor_y; yf<=anchor_y; ++yf) {
+                for (int xf = -anchor_x; xf<=anchor_x; ++xf) {
+                    sum += 
+                        filter[(yf+anchor_y)*size_x + xf+anchor_x]
+                            * in1[(y+yf)*width + x + xf]
+                        + filter[(yf+anchor_y)*size_x + xf+anchor_x]
+                            * in2[(y+yf)*width + x + xf];
+                }
+            }
+            out[y*width + x] = (TYPE) (sum);
+        }
+    }
+}
+
+void kernel_fusion(TYPE *in, TYPE *out, float *filter,
+                   int size_x, int size_y, int width, int height) {
   TYPE *ref_buf0 = new TYPE[width*height];
   TYPE *ref_buf1 = new TYPE[width*height];
+
   point_kernel(in, ref_buf0, width, height);
-  point_kernel(ref_buf0, out, width, height);
-  //point_kernel(ref_buf1, out, width, height);
+  point_kernel(in, ref_buf1, width, height);
+  local_out_kernel(ref_buf0, ref_buf1, out, filter, size_x, size_y, width, height);
+
   delete[] ref_buf0;
   delete[] ref_buf1;
 }
