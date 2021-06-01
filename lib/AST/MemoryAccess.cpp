@@ -703,12 +703,12 @@ void ASTTranslate::stageLineToSharedMemory(ParmVarDecl *PVD,
   if (Kernel->isFusible() && fusionVars.bP2LReplaceInputExprs) {
     // extract and set global id
     ArraySubscriptExpr *tempASE = dyn_cast<ArraySubscriptExpr>(RHS);
-    stageBody.push_back(createBinaryOperator(Ctx, fusionVars.exprP2LInputIdx,
+    stageBody.push_back(createBinaryOperator(Ctx, createPptVarRefExpr(fusionVars.exprP2LInputIdx),
       tempASE->getIdx(), BO_Assign, Acc->getImage()->getType()));
     // insert the producer body
     stageBody.push_back(fusionVars.stmtP2LProducerBody);
     // replace the input
-    stageBody.push_back(createBinaryOperator(Ctx, LHS, fusionVars.exprOutput,
+    stageBody.push_back(createBinaryOperator(Ctx, LHS, createPptVarRefExpr(fusionVars.exprOutput),
       BO_Assign, Acc->getImage()->getType()));
   } else {
     stageBody.push_back(createBinaryOperator(Ctx, LHS, RHS, BO_Assign,

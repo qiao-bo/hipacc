@@ -139,9 +139,9 @@ class ASTFuse {
     FunctionDecl *createFusedKernelDecl(std::list<HipaccKernel *> *l);
     void insertPrologFusedKernel();
     void insertEpilogFusedKernel();
-    void createReg4FusionVarDecl(QualType QT);
-    void createIdx4FusionVarDecl();
-    void createGidVarDecl();
+    void createReg4FusionVarDecl(QualType QT, unsigned int ppt);
+    void createIdx4FusionVarDecl(unsigned int ppt);
+    void createGidVarDecl(unsigned int ppt);
     void markKernelPositionSublist(std::list<HipaccKernel *> *l);
     void recomputeMemorySizeLocalFusion(std::list<HipaccKernel *> *l);
 

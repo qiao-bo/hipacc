@@ -197,24 +197,24 @@ class ASTTranslate : public StmtVisitor<ASTTranslate, Stmt *> {
     class KernelFusionVars {
       public:
         bool bSkipGidDecl;
-        Expr *exprOutput;
+        VarDecl *exprOutput;
         bool bReplaceExprOutput;
         bool multipleInputs;
-        std::map<HipaccImage*, Expr*> exprInputs;
-        Expr *exprInput;
-        Expr *exprInputAccess;
+        std::map<HipaccImage*, VarDecl*> exprInputs;
+        VarDecl *exprInput;
+        VarDecl *exprInputAccess;
         bool bInputAccessProduce;
         bool bReplaceExprInput;
         bool bP2LReplaceExprInputIdx;
-        Expr *exprP2LInputIdx;
+        VarDecl *exprP2LInputIdx;
         bool bP2LReplaceInputExprs;
         Stmt *stmtP2LProducerBody;
         Expr *exprSharedImgReg;
         std::string exprSharedImgName;
         bool bL2LInsertKernelBody;
         bool bL2LInsertBeforeSmem;
-        Expr *exprL2LIdXShift;
-        Expr *exprL2LIdYShift;
+        VarDecl *exprL2LIdXShift;
+        VarDecl *exprL2LIdYShift;
         int curL2LIdXShift;
         int curL2LIdYShift;
         bool bL2LRecordBorder;
@@ -263,6 +263,8 @@ class ASTTranslate : public StmtVisitor<ASTTranslate, Stmt *> {
     };
     KernelFusionVars fusionVars;
 
+    size_t currentPptIndex;
+
 
     template<class T> T *Clone(T *S) {
       if (S==nullptr)
@@ -287,6 +289,8 @@ class ASTTranslate : public StmtVisitor<ASTTranslate, Stmt *> {
           return dyn_cast<T>(cloneFunction(dyn_cast<FunctionDecl>(D)));
       }
     }
+
+    Expr* createPptVarRefExpr(VarDecl *VD) const;
 
     VarDecl *CloneVarDecl(VarDecl *VD);
     VarDecl *CloneParmVarDecl(ParmVarDecl *PVD);
@@ -466,7 +470,8 @@ class ASTTranslate : public StmtVisitor<ASTTranslate, Stmt *> {
       tileVars(),
       lidYRef(nullptr),
       gidYRef(nullptr),
-      fusionVars(kernel) {
+      fusionVars(kernel),
+      currentPptIndex(0) {
         // get 'hipacc' namespace context for lookups
         auto hipacc_ident = &Ctx.Idents.get("hipacc");
         for (auto *decl : Ctx.getTranslationUnitDecl()->lookup(hipacc_ident))

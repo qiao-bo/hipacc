@@ -178,8 +178,8 @@ Expr *ASTTranslate::addBorderHandling(DeclRefExpr *LHS, Expr *local_offset_x,
   idx_x = addLocalOffset(idx_x, local_offset_x);
   idx_y = addLocalOffset(idx_y, local_offset_y);
   if (bRecordStmtsForKernelFusion) {
-    idx_x_fusion = addLocalOffset(idx_x_fusion, fusionVars.exprL2LIdXShift);
-    idx_y_fusion = addLocalOffset(idx_y_fusion, fusionVars.exprL2LIdYShift);
+    idx_x_fusion = addLocalOffset(idx_x_fusion, createPptVarRefExpr(fusionVars.exprL2LIdXShift));
+    idx_y_fusion = addLocalOffset(idx_y_fusion, createPptVarRefExpr(fusionVars.exprL2LIdYShift));
   }
 
   // step 1: remove is_offset and add interpolation & boundary handling
@@ -391,10 +391,10 @@ Expr *ASTTranslate::addBorderHandling(DeclRefExpr *LHS, Expr *local_offset_x,
 
   if (bRecordStmtsForKernelFusion) {
     Expr *end_offset_x, *end_offset_y;
-    end_offset_x = createBinaryOperator(Ctx, fusionVars.exprL2LIdXShift,
+    end_offset_x = createBinaryOperator(Ctx, createPptVarRefExpr(fusionVars.exprL2LIdXShift),
                     createBinaryOperator(Ctx, idx_x, tileVars.global_id_x, BO_Sub, Ctx.IntTy),
                       BO_Assign, Ctx.IntTy);
-    end_offset_y = createBinaryOperator(Ctx, fusionVars.exprL2LIdYShift,
+    end_offset_y = createBinaryOperator(Ctx, createPptVarRefExpr(fusionVars.exprL2LIdYShift),
                     createBinaryOperator(Ctx, idx_y, gidYRef, BO_Sub, Ctx.IntTy),
                       BO_Assign, Ctx.IntTy);
     (fusionVars.stmtsL2LBorder).push_back(end_offset_x);

@@ -62,8 +62,20 @@ void kernel_fusion(TYPE *in, TYPE *out, int width, int height);
  * Main function                                                         *
  *************************************************************************/
 HIPACC_CODEGEN int main(int argc, const char **argv) {
-    const int width = WIDTH;
-    const int height = HEIGHT;
+	int width_arg = WIDTH;
+	int height_arg = HEIGHT;
+
+	if(argc >= 2) {
+		width_arg = std::stoi(argv[1]);
+		height_arg = width_arg;
+	}
+
+	if(argc >= 3) {
+		height_arg = std::stoi(argv[2]);
+	}
+
+    const int width = width_arg;
+    const int height = height_arg;
 
     // host memory for image of width x height pixels, random
     TYPE *input = (TYPE*)load_data<TYPE>(width, height);
@@ -86,18 +98,18 @@ HIPACC_CODEGEN int main(int argc, const char **argv) {
 
     Accessor<TYPE> acc1(buf0);
     Image<TYPE> buf1(width, height);
-    IterationSpace<TYPE> iter1(buf1);
+    IterationSpace<TYPE> iter1(out);
     PointOperatorExample pointOp1(iter1, acc1);
 
-    Accessor<TYPE> acc2(buf1);
-    Image<TYPE> buf2(width, height);
-    IterationSpace<TYPE> iter2(out);
-    PointOperatorExample pointOp2(iter2, acc2);
+    //Accessor<TYPE> acc2(buf1);
+    //Image<TYPE> buf2(width, height);
+    //IterationSpace<TYPE> iter2(out);
+    //PointOperatorExample pointOp2(iter2, acc2);
 
     // execution after all decls
     pointOp0.execute();
     pointOp1.execute();
-    pointOp2.execute();
+    //pointOp2.execute();
 
     // get pointer to result data
     TYPE *output = out.data();
@@ -127,8 +139,8 @@ void kernel_fusion(TYPE *in, TYPE *out, int width, int height) {
   TYPE *ref_buf0 = new TYPE[width*height];
   TYPE *ref_buf1 = new TYPE[width*height];
   point_kernel(in, ref_buf0, width, height);
-  point_kernel(ref_buf0, ref_buf1, width, height);
-  point_kernel(ref_buf1, out, width, height);
+  point_kernel(ref_buf0, out, width, height);
+  //point_kernel(ref_buf1, out, width, height);
   delete[] ref_buf0;
   delete[] ref_buf1;
 }

@@ -226,13 +226,24 @@ void ASTFuse::initKernelFusion() {
 
 void ASTFuse::HipaccFusion(std::list<HipaccKernel *> *l) {
   hipacc_require((l->size() >=2), "at least two kernels shoud be recorded for fusion");
+
+  unsigned int ppt = 0;
+  for (const auto& kernel : *l) {
+    if (ppt != 0) {
+      hipacc_require((kernel->getPixelsPerThread() == ppt), "kernels in one fusion list must all have the same PPT");
+    } else {
+      ppt = kernel->getPixelsPerThread();
+    }
+  }
+
+  hipacc_require((ppt >= 1), "The PPT of the given fusion list could not be determined. This indicates a bug in the compiler implementation.");
   
   const auto& partitionBlock = getPartitionBlockFor(l);
   FusiblePartitionBlock::PatternType patternType = partitionBlock.getPatternType();
 
   initKernelFusion();
   curFusedKernelDecl = createFusedKernelDecl(l);
-  createGidVarDecl();
+  createGidVarDecl(ppt);
 
   markKernelPositionSublist(l);
 
@@ -277,7 +288,7 @@ void ASTFuse::HipaccFusion(std::list<HipaccKernel *> *l) {
         case Source:
           if (DEBUG) { std::cout << "P2P source generate"; }
           hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
-          createReg4FusionVarDecl(KC->getOutField()->getType());
+          createReg4FusionVarDecl(KC->getOutField()->getType(), ppt);
           Hipacc->setFusionP2PSrcOperator(fusionRegVarDecls.back());
           curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
           break;
@@ -291,7 +302,7 @@ void ASTFuse::HipaccFusion(std::list<HipaccKernel *> *l) {
           if (DEBUG) { std::cout << "P2P Intermediate generate"; }
           hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
           VarDecl *VDIn = fusionRegVarDecls.back();
-          createReg4FusionVarDecl(KC->getOutField()->getType());
+          createReg4FusionVarDecl(KC->getOutField()->getType(), ppt);
           VarDecl *VDOut = fusionRegVarDecls.back();
           Hipacc->setFusionP2PIntermOperator(VDIn, VDOut);
           curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
@@ -306,10 +317,10 @@ void ASTFuse::HipaccFusion(std::list<HipaccKernel *> *l) {
           hipacc_require(KernelType == LocalOperator, "Mismatch kernel type for fusion");
           if (DEBUG) { std::cout << "L2P source generate"; }
           if (dataDeps->hasSharedIS(K)) {
-            createReg4FusionVarDecl(KC->getOutField()->getType());
+            createReg4FusionVarDecl(KC->getOutField()->getType(), ppt);
             regVDSImg = fusionRegVarDecls.back();
           }
-          createReg4FusionVarDecl(KC->getOutField()->getType());
+          createReg4FusionVarDecl(KC->getOutField()->getType(), ppt);
           Hipacc->setFusionP2PSrcOperator(fusionRegVarDecls.back());
           curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
           if (dataDeps->hasSharedIS(K)) {
@@ -331,7 +342,7 @@ void ASTFuse::HipaccFusion(std::list<HipaccKernel *> *l) {
           hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
           if (DEBUG) { std::cout << "L2P Intermediate generate"; }
           VarDecl *VDIn = fusionRegVarDecls.back();
-          createReg4FusionVarDecl(KC->getOutField()->getType());
+          createReg4FusionVarDecl(KC->getOutField()->getType(), ppt);
           VarDecl *VDOut = fusionRegVarDecls.back();
           if (dataDeps->hasSharedIS(K)) {
             Hipacc->setFusionL2PIntermOperator(VDIn, VDOut, regVDSImg, dataDeps->getSharedISName(K));
@@ -349,8 +360,8 @@ void ASTFuse::HipaccFusion(std::list<HipaccKernel *> *l) {
         case Source:
           hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
           if (DEBUG) { std::cout << "P2L source generate"; }
-          createIdx4FusionVarDecl();
-          createReg4FusionVarDecl(KC->getOutField()->getType());
+          createIdx4FusionVarDecl(ppt);
+          createReg4FusionVarDecl(KC->getOutField()->getType(), ppt);
           Hipacc->setFusionP2LSrcOperator(fusionRegVarDecls.back(), fusionIdxVarDecls.back());
           vecProducerP2LBody.clear();
           vecProducerP2LBody.push_back(Hipacc->Hipacc(KC->getKernelFunction()->getBody()));
@@ -366,7 +377,7 @@ void ASTFuse::HipaccFusion(std::list<HipaccKernel *> *l) {
           hipacc_require(KernelType == PointOperator, "Mismatch kernel type for fusion");
           if (DEBUG) { std::cout << "P2L Intermediate generate"; }
           VarDecl *VDIn = fusionRegVarDecls.back();
-          createReg4FusionVarDecl(KC->getOutField()->getType());
+          createReg4FusionVarDecl(KC->getOutField()->getType(), ppt);
           VarDecl *VDOut = fusionRegVarDecls.back();
           Hipacc->setFusionP2PIntermOperator(VDIn, VDOut);
           vecProducerP2LBody.push_back(Hipacc->Hipacc(KC->getKernelFunction()->getBody()));
@@ -380,10 +391,10 @@ void ASTFuse::HipaccFusion(std::list<HipaccKernel *> *l) {
         case Source:
           hipacc_require(KernelType == LocalOperator, "Mismatch kernel type for fusion");
           if (DEBUG) { std::cout << "L2L source generate"; }
-          createReg4FusionVarDecl(KC->getOutField()->getType());
-          createIdx4FusionVarDecl();
+          createReg4FusionVarDecl(KC->getOutField()->getType(), ppt);
+          createIdx4FusionVarDecl(ppt);
           idxXFused = fusionIdxVarDecls.back();
-          createIdx4FusionVarDecl();
+          createIdx4FusionVarDecl(ppt);
           idxYFused = fusionIdxVarDecls.back();
           Hipacc->setFusionL2LSrcOperator(fusionRegVarDecls.back(), idxXFused, idxYFused,
               std::get<1>(localKernelMemorySizeMap[K]));
@@ -434,11 +445,11 @@ void ASTFuse::HipaccFusion(std::list<HipaccKernel *> *l) {
           srcAccessor = K->getImgFromMapping(srcAccessorDecl);
 
           if (parallelInput == nullptr) {
-            createReg4FusionVarDecl(srcAccessor->getImage()->getType());
+            createReg4FusionVarDecl(srcAccessor->getImage()->getType(), ppt);
             parallelInput = fusionRegVarDecls.back();
           }
 
-          createReg4FusionVarDecl(KC->getOutField()->getType());
+          createReg4FusionVarDecl(KC->getOutField()->getType(), ppt);
           parallelOutImageMap[iterSpace->getImage()] = fusionRegVarDecls.back();
           Hipacc->setFusionNP2PSrcOperator(parallelInput, fusionRegVarDecls.back(), srcProduce);
           curFusionBody = Hipacc->Hipacc(KC->getKernelFunction()->getBody());
@@ -573,19 +584,25 @@ SmallVector<std::string, 16> ASTFuse::getFusedFileNamesAll() const {
 std::string ASTFuse::getFusedKernelName(HipaccKernel *K) { return fusedKernelNameMap[K]; }
 unsigned ASTFuse::getNewYSizeLocalKernel(HipaccKernel *K) { return std::get<1>(fusedLocalKernelMemorySizeMap[K]); }
 
-void ASTFuse::createReg4FusionVarDecl(QualType QT) {
-  std::string Name = "_reg_fusion" + std::to_string(fusionRegVarCount++);
-  VarDecl *VD = createVarDecl(Ctx, Ctx.getTranslationUnitDecl(), Name, QT);
-  fusionRegVarDecls.push_back(VD);
+void ASTFuse::createReg4FusionVarDecl(QualType QT, unsigned int ppt) {
+  std::string regCount = std::to_string(fusionRegVarCount++);
+  for (unsigned int i = 0; i < ppt; ++i) {
+    std::string Name = "_reg_fusion" + regCount + "_" + std::to_string(i);
+    VarDecl *VD = createVarDecl(Ctx, Ctx.getTranslationUnitDecl(), Name, QT);
+    fusionRegVarDecls.push_back(VD);
+  }
 }
 
-void ASTFuse::createIdx4FusionVarDecl() {
-  std::string Name = "_idx_fusion" + std::to_string(fusionIdxVarCount++);
-  VarDecl *VD = createVarDecl(Ctx, Ctx.getTranslationUnitDecl(), Name, Ctx.IntTy);
-  fusionIdxVarDecls.push_back(VD);
+void ASTFuse::createIdx4FusionVarDecl(unsigned int ppt) {
+  std::string idxCount = std::to_string(fusionIdxVarCount++);
+  for (unsigned int i = 0; i < ppt; ++i) {
+    std::string Name = "_idx_fusion" + idxCount + "_" + std::to_string(i);
+    VarDecl *VD = createVarDecl(Ctx, Ctx.getTranslationUnitDecl(), Name, Ctx.IntTy);
+    fusionIdxVarDecls.push_back(VD);
+  }
 }
 
-void ASTFuse::createGidVarDecl() {
+void ASTFuse::createGidVarDecl(unsigned int ppt) {
   SmallVector<QualType, 16> uintDeclTypes;
   SmallVector<StringRef, 16> uintDeclNames;
   uintDeclTypes.push_back(Ctx.UnsignedIntTy);
@@ -620,6 +637,13 @@ void ASTFuse::createGidVarDecl() {
           block_id_x, BO_Mul, Ctx.IntTy), local_id_x, BO_Add,
         Ctx.IntTy));
   Expr *YE = createBinaryOperator(Ctx, local_size_y, block_id_y, BO_Mul, Ctx.IntTy);
+
+  // Adapt YE according to PPT
+  if (ppt > 1) {
+    YE = createBinaryOperator(Ctx, YE, createIntegerLiteral(Ctx,
+          static_cast<int>(ppt)), BO_Mul, Ctx.IntTy);
+  }
+
   VarDecl *gid_y = createVarDecl(Ctx, curFusedKernelDecl, "gid_y", Ctx.getConstType(Ctx.IntTy),
       createBinaryOperator(Ctx, YE, local_id_y, BO_Add, Ctx.IntTy));
   fusionRegVarDecls.push_back(gid_x);
